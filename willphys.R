@@ -1,9 +1,10 @@
-setwd("~/Documents/Neuroscience/jefferis_lab/shahar_data/RandIgor")
+#setwd("~/Documents/Neuroscience/jefferis_lab/shahar_data/RandIgor")
 require(RColorBrewer)
 require(NMF)
 require(gphys)
 require(gplots)
-require(nnet)
+#require(nnet)
+require(gptk)
 
 source("Avg_IgorImport.R")
 source("PSTH_FUNC.R")
@@ -143,7 +144,7 @@ make.total.data.matrix <- function(spikes, nr, nc) {
 	return(all.mat)
 }
 lhn.mat <- make.total.data.matrix(SpikesT, length(mean.rates), 36*4)
-lhn.labels <- factor(colnames(all.mat))
+lhn.labels <- factor(colnames(lhn.mat))
 
 binarize.mat.per.cell <- function(mat, labels, blank.names = c("OilBl", "WatBl")) {
 	bl <- labels %in% blank.names
@@ -224,20 +225,160 @@ heatmap.2(lhn.common.cor, distfun=function(x) as.dist(1-x), scale='none',Rowv=NA
 ## Data Analysis
 
 # Encoding: calculate pobabilities of response given odors
+binarize.trials <- function(mat, labels, blank.names = c("OilBl", "WatBl")) {
+    bl <- labels %in% blank.names
+    num.nonblank <- sum(!bl)
+    labels.nonblank <- labels[!bl]
+    bin.mat <- mat[,!bl]
+    for (i in 1:nrow(bin.mat)) {
+        for (j in 1:ncol(bin.mat)) {
+            blank.mean <- mean(mat[i,bl])
+            bin.mat[i,j] <- ifelse(poisson.test(bin.mat[i,j], blank.mean)$p.value < 0.05, 1, 0)
+        }
+    }
+    return(bin.mat)    
+}
+
+# alpha is prior value
+make.trial.probs <- function(bin.mat, num.reps=4, alpha=0.1) {
+    # assumes 4 trials per odor
+    if (is.null(dim(bin.mat))) {
+        probs <- rep(0, length(bin.mat)/num.reps)
+        names(probs) <- unique(names(bin.mat))
+        for (i in unique(names(bin.mat))) {
+            curr.cols <- names(bin.mat) %in% i
+            probs[i] <- (sum(bin.mat[curr.cols])+alpha)/(num.reps+2*alpha)
+        }
+    } else {
+        probs <- matrix(0, nrow=nrow(bin.mat), ncol=ncol(bin.mat)/num.reps)
+        colnames(probs) <- unique(colnames(bin.mat))
+        for (i in 1:nrow(bin.mat)) {
+            for (j in unique(colnames(bin.mat))) {
+                curr.cols <- colnames(bin.mat) %in% j
+                probs[i,j] <- (sum(bin.mat[i,curr.cols])+alpha)/(num.reps+2*alpha)
+            }
+        }
+    }
+    return(probs)
+}
+lhn.trial.bin <- binarize.trials(lhn.mat, lhn.labels)
+lhn.probs <- make.trial.probs(lhn.trial.bin)
+
+# TODO Calculate mutual information and show redundancy
 
 # Decoding: try to predict odors given population data
 # -- Use total population data
 # train on 3 examples for each cell and test on last
-lhn.mat.noblank <- lhn.mat[,!(lhn.labels %in% c("OilBl", "WatBl"))]
+
+
+make.trial.rates <- function(mat, alpha=0.1) {
+    # assumes 3 trials per odor in training set
+    rates <- matrix(0, nrow=nrow(mat), ncol=ncol(mat)/3)
+    colnames(rates) <- unique(colnames(mat))
+    for (i in 1:nrow(mat)) {
+        for (j in unique(colnames(mat))) {
+            curr.cols <- colnames(mat) %in% j
+            rates[i,j] <- mean(mat[i,curr.cols])
+        }
+    }
+    return(rates)
+}
+
+
 leave.out <- seq(1,ncol(lhn.mat.noblank),4)
-test.lhn <- lhn.mat.noblank[,leave.out]
-train.lhn <- lhn.mat.noblank[, !(1:ncol(lhn.mat.noblank) %in% leave.out)]
-model <- multinom(factor(colnames(train.lhn)) ~ train.lhn[1,])
+train.lhn.rates <- make.trial.rates(lhn.mat.noblank[, !(1:ncol(lhn.mat.noblank) %in% leave.out)])
+test.lhn.rates <- lhn.mat.noblank[,leave.out]
+train.lhn.bin <- make.trial.probs(lhn.trial.bin[,!(1:ncol(lhn.trial.bin) %in% leave.out)], 3)
+test.lhn.bin <- lhn.trial.bin[,leave.out]
+
+# first do with naive independence assumption (factor so that p(x|s) = \prod_i p(x_i|s)
+# Try with rates and Poisson emissions
+classify.naive.poisson <- function(train, test) {
+    # rows are odors, cols are probs
+    label.probs <- matrix(0, nrow=ncol(test), ncol=ncol(test))
+    colnames(label.probs) <- colnames(train)
+    rownames(label.probs) <- rownames(train)
+    for (i in 1:ncol(test)) {
+        for (j in 1:ncol(test)) {
+            label.probs[i,j] <- sum(log(ppois(test[,i], train[,j])))
+        }                                
+    }
+    labels <- apply(label.probs, 1, which.max)
+    return(labels)
+}
+
+classify.naive.binom <- function(train, test) {
+    if (is.null(dim(train))) {
+        label.probs <- matrix(0, nrow=length(train), ncol=length(train))
+    } else {
+        label.probs <- matrix(0, nrow=ncol(test), ncol=ncol(test))
+    }
+    colnames(label.probs) <- colnames(train)
+    rownames(label.probs) <- rownames(train)
+    for (i in 1:ncol(label.probs)) {
+        for (j in 1:ncol(label.probs)) {
+            if (is.null(dim(train))) {
+                label.probs[i,j] <- log(ifelse(test[i] == 1, train[j], 1-train[j]))
+            } else {
+                label.probs[i,j] <- sum(log(ifelse(test[,i] == 1, train[,j], 1-train[,j])))
+            }
+        }
+    }
+
+    labels <- apply(label.probs, 1, which.max)
+    return(labels)
+}
+
+cross.validate <- function(mat) {
+    accuracy <- c()
+    for (i in 0:3) {
+        leave.out <- seq(1, ncol(mat), 4)+i
+        train <- make.trial.probs(mat[,!(1:ncol(mat) %in% leave.out)], 3)
+        test <- mat[,leave.out]
+        labels <- classify.naive.binom(train, test)
+        accuracy <- c(accuracy, sum(labels == 1:34)/34)
+    }
+    return(accuracy)
+}
+
+# then do allowing pairwise interactions? Maybe unnecessary b/c so accurate
+
 # -- Compare with leaving out single neurons
+cross.validate.leaveout <- function(mat) {
+    accuracy <- c()
+    for (i in 1:nrow(mat)) {
+        temp.mat <- mat[!(1:nrow(mat) %in% i),]
+        accuracy <- c(accuracy,mean(cross.validate(temp.mat)))
+    }
+    return(accuracy)
+}
+
+# -- collapse to clusters and redo prediction
 
 # -- Compare with single neuron predictions
-predictions <- c()
-for (i in 1:nrow(train.lhn)) {
-	model <- multinom(factor(colnames(train.lhn)) ~ train.lhn[i,])
 
+single.neuron.pred <- function(mat) {
+    accuracy <- c()
+    for (i in 1:nrow(mat)) {
+        curr.acc <- c()
+        for (j in 0:3) {
+            leave.out <- seq(1, ncol(mat), 4) + j     
+            train <- make.trial.probs(mat[i, !(1:ncol(mat) %in% leave.out)], 3)
+            test <- mat[i, leave.out]
+            labels <- classify.naive.binom(train, test)
+            curr.acc <- c(curr.acc, sum(labels == 1:34)/34)
+        }
+        accuracy <- c(accuracy, mean(curr.acc))
+    }
+    return(accuracy)
+}
+
+# info theory
+entropy.binom <- function(x) {
+    return(- x*log(x) - (1-x)*log(1-x))
+}
+
+entropies <- c()
+for (i in 1:nrow(train.lhn.bin)) {
+    entropies <- c(avg.entropies, sum(entropy.binom(train.lhn.bin[i,])))
 }
