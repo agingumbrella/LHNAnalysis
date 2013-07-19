@@ -1,10 +1,10 @@
-#setwd("~/Documents/Neuroscience/jefferis_lab/shahar_data/RandIgor")
+setwd("~/Documents/Neuroscience/jefferis_lab/shahar_data/RandIgor/LHNAnalysis")
 require(RColorBrewer)
 require(NMF)
 require(gphys)
 require(gplots)
 #require(nnet)
-require(gptk)
+#require(gptk)
 
 source("Avg_IgorImport.R")
 source("PSTH_FUNC.R")
@@ -270,7 +270,6 @@ lhn.probs <- make.trial.probs(lhn.trial.bin)
 # -- Use total population data
 # train on 3 examples for each cell and test on last
 
-
 make.trial.rates <- function(mat, alpha=0.1) {
     # assumes 3 trials per odor in training set
     rates <- matrix(0, nrow=nrow(mat), ncol=ncol(mat)/3)
@@ -284,7 +283,7 @@ make.trial.rates <- function(mat, alpha=0.1) {
     return(rates)
 }
 
-
+lhn.mat.noblank <- lhn.mat[, !(colnames(lhn.mat) %in% c("OilBl", "WatBl"))]
 leave.out <- seq(1,ncol(lhn.mat.noblank),4)
 train.lhn.rates <- make.trial.rates(lhn.mat.noblank[, !(1:ncol(lhn.mat.noblank) %in% leave.out)])
 test.lhn.rates <- lhn.mat.noblank[,leave.out]
@@ -356,7 +355,6 @@ cross.validate.leaveout <- function(mat) {
 # -- collapse to clusters and redo prediction
 
 # -- Compare with single neuron predictions
-
 single.neuron.pred <- function(mat) {
     accuracy <- c()
     for (i in 1:nrow(mat)) {
@@ -380,5 +378,5 @@ entropy.binom <- function(x) {
 
 entropies <- c()
 for (i in 1:nrow(train.lhn.bin)) {
-    entropies <- c(avg.entropies, sum(entropy.binom(train.lhn.bin[i,])))
+    entropies <- c(entropies, sum(entropy.binom(train.lhn.bin[i,])))
 }
