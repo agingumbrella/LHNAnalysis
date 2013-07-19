@@ -1,8 +1,10 @@
-setwd("~/Documents/Neuroscience/jefferis_lab/shahar_data/RandIgor/LHNAnalysis")
+#setwd("~/Documents/Neuroscience/jefferis_lab/shahar_data/RandIgor/LHNAnalysis")
 require(RColorBrewer)
 require(NMF)
 require(gphys)
 require(gplots)
+require(glmnet)
+require(MASS)
 #require(nnet)
 #require(gptk)
 
@@ -64,6 +66,7 @@ pn <- make.pn.rates(orn)
 # panel 1
 jet.colors<-colorRampPalette(c('navy','cyan','yellow','red'))(256)
 bin.colors <- colorRampPalette(c('white', 'black'))(100)
+bin.rev.colors <- colorRampPalette(c('black', 'white'))(100)
 heatmap.2(t(orn),col=jet.colors,scale="none", trace="none")
 heatmap.2(t(pn), col=jet.colors, scale="none", trace="none")
 
@@ -85,6 +88,14 @@ pc.pn <- princomp(pn)$sdev
 plot(100*pc.orn^2/sum(pc.orn^2), xlab="PC component", ylab="% variance", ylim=c(0,75))
 plot(100*pc.nl^2/sum(pc.nl^2), xlab="PC component", ylab="% variance", ylim=c(0,75))
 plot(100*pc.pn^2/sum(pc.pn^2), xlab="PC component", ylab="% variance",ylim=c(0,75))
+
+## Assign weights using LDA
+##
+## TODO Try to allow only positive weights
+#x <- glmnet(pn, factor(c(rep(0, 55),rep(1,55))), family="binomial")
+# split into two separate groups
+g1 <- lda(pn, factor(c(rep(0,55), rep(1,55))))
+g2 <- lda(pn, factor(c(rep(0,10), rep(1,30), rep(0, 15))))
 
 # make correlation plots among ORNs
 orn.cor <- cor(orn, use='complete.obs')
@@ -147,21 +158,21 @@ lhn.mat <- make.total.data.matrix(SpikesT, length(mean.rates), 36*4)
 lhn.labels <- factor(colnames(lhn.mat))
 
 binarize.mat.per.cell <- function(mat, labels, blank.names = c("OilBl", "WatBl")) {
-	bl <- labels %in% blank.names
-	num.nonblank <- sum(!bl)
-	labels.nonblank <- labels[!bl]
-	bin.mat <- matrix(0, nrow=nrow(mat), ncol=num.nonblank/4)
-	colnames(bin.mat) <- unique(labels.nonblank)
-	for (i in 1:nrow(mat)) {
-		for (j in unique(labels.nonblank)) {
-			if (sum(mat[i,bl]) > 0) {
-				bin.mat[i,j] <- ifelse(t.test(mat[i,labels %in% j], mat[i,bl])$p.value < 0.05, 1, 0)
-			} else {
-				bin.mat[i,j] <- ifelse(sum(mat[i,labels %in% j]) > 0, 1, 0)
-			}
-		}
-	}
-	return(bin.mat)
+    bl <- labels %in% blank.names
+    num.nonblank <- sum(!bl)
+    labels.nonblank <- labels[!bl]
+    bin.mat <- matrix(0, nrow=nrow(mat), ncol=num.nonblank/4)
+    colnames(bin.mat) <- unique(labels.nonblank)
+    for (i in 1:nrow(mat)) {
+        for (j in unique(labels.nonblank)) {
+            if (sum(mat[i,bl]) > 0) {
+                bin.mat[i,j] <- ifelse(t.test(mat[i,labels %in% j], mat[i,bl])$p.value < 0.05, 1, 0)
+            } else {
+                bin.mat[i,j] <- ifelse(sum(mat[i,labels %in% j]) > 0, 1, 0)
+            }
+        }
+    }
+    return(bin.mat)
 }
 
 lhn.bin <- binarize.mat.per.cell(lhn.mat, lhn.labels)
@@ -213,6 +224,7 @@ orn.common.cor <- cor(t(orn.common), use='complete.obs')
 pn.common.cor <- cor(t(pn.common), use='complete.obs')
 lhn.common.cor <- cor(t(lhn.common), use='complete.obs')
 heatmap.2(lhn.cor, distfun=function(x) as.dist(1-x), scale='none', symm=T, col=jet.colors, trace='none')
+hist(lhn.cor, main="LHN Cross-correlation", xlab="Correlation Coefficient")
 heatmap.2(lhn.odors.cor, distfun=function(x) as.dist(1-x), scale='none', symm=T, col=jet.colors, trace='none')
 
 # just heatmaps of common odors
@@ -290,6 +302,10 @@ test.lhn.rates <- lhn.mat.noblank[,leave.out]
 train.lhn.bin <- make.trial.probs(lhn.trial.bin[,!(1:ncol(lhn.trial.bin) %in% leave.out)], 3)
 test.lhn.bin <- lhn.trial.bin[,leave.out]
 
+pois <- function(k,l) {
+    return(((l^k)*exp(-l))/factorial(k))
+}
+
 # first do with naive independence assumption (factor so that p(x|s) = \prod_i p(x_i|s)
 # Try with rates and Poisson emissions
 classify.naive.poisson <- function(train, test) {
@@ -300,6 +316,7 @@ classify.naive.poisson <- function(train, test) {
     for (i in 1:ncol(test)) {
         for (j in 1:ncol(test)) {
             label.probs[i,j] <- sum(log(ppois(test[,i], train[,j])))
+
         }                                
     }
     labels <- apply(label.probs, 1, which.max)
@@ -352,6 +369,8 @@ cross.validate.leaveout <- function(mat) {
     return(accuracy)
 }
 
+# TODO Compute cross-validated accuracy with shuffled labels for comparison
+
 # -- collapse to clusters and redo prediction
 
 # -- Compare with single neuron predictions
@@ -372,8 +391,55 @@ single.neuron.pred <- function(mat) {
 }
 
 # info theory
-entropy.binom <- function(x) {
-    return(- x*log(x) - (1-x)*log(1-x))
+# Mutual information b/w responses and cell identity (conditional on stimulus)
+# I(r; i|s) = 1/N \sum_{i=1}^N \sum_r p(r|s, i) log_2 (p(r|s,i)/p(r|s)) bits
+# where p(r|s) = 1/N \sum_{i=1}^N p(r|s, i)
+# can then compute <I(r;i|s)> over all stimuli => <I(r;i|s)> = \sum_k p(s_k) I(r;i|s_k)
+# in the case of p(s_k) = 1/K for all s_k, then equals 1/K \sum_k I(r;i|s_k) which is just the empirical mean
+
+# Function takes probs matrix where rows are cells and columns are stimuli
+# returns vector of mutual information between response and stimuli
+mutual.info <- function(probs) {
+    I <- c()
+    p.rs <- apply(probs, 2, mean)
+    for (i in 1:ncol(probs)) {
+       I <- c(I, mean(probs[,i]*log2(probs[,i]/p.rs[i])+(1-probs[,i])*log2((1-probs[,i])/(1-p.rs[i]))))
+    }
+    return(I)
+}
+
+# RELATIVE ENTROPY MATRIX
+# Compute D_ij = <D_JS[p(r|i,s)||p(r|j,s)]>_s = 1/K \sum_k D_JS[p(r|i,s_k)||p(r|j,s_k)]
+# and D_JS[P||Q] = \sum_i log2(P(i)/Q(i))p(i)
+# or, in this case,
+# D_JS[p(r|i,s_k)||p(r|j,s_k)] = log2(p(1|i,s_k)/p(1|j,s_k))p(1|i,s_k) + log2(p(0|i,s_k)/p(0|j,s_k)p(0|i,s_k)
+# = log2(p(1|i,s_k)/p(1|j,s_k))p(1|i,s_k) + log2(1-p(1|i,s_k)/(1-p(1|j,s_k)))(1-p(1|i,s_k))
+make.D <- function(probs) {
+    D <- matrix(0, nrow=nrow(probs), ncol=nrow(probs))
+    for (i in 1:nrow(D)) {
+        for (j in 1:nrow(D)) {
+            D[i,j] <- mean(log2(probs[i,]/probs[j,])*probs[i,] + log2((1-probs[i,])/(1-probs[j,]))*(1-probs[i,]))
+        }
+    }
+    return(D)
+}
+
+# takes in bin.mat
+# ALGORITHM:
+# compute probs for all cells
+# while
+#  - estimate probs using current cluster assignments
+#  - compute relatives entropies D
+#  - merge two cells with minimum D_ij
+
+info.cluster <- function(bin.mat) {
+}
+
+D <- make.D(lhn.probs)
+heatmap.2(D, scale='none', symm=T, trace='none', col=bin.rev.colors)
+
+entropy.binom <- function(p) {
+    return(- p*log2(p) - (1-p)*log2(1-p))
 }
 
 entropies <- c()
