@@ -5,6 +5,8 @@ require(gphys)
 require(gplots)
 require(glmnet)
 require(MASS)
+require(penalized)
+#require(e1071)
 #require(nnet)
 #require(gptk)
 
@@ -38,11 +40,8 @@ val <- val.and.ors[,c("Odorant", "Attraction.index")]
 
 orn <- as.matrix(val.and.ors[,x.names])
 colnames(orn) <- orn.names
-for (i in 1:nrow(orn)) {
-  orn[i,] <- orn[i,] + spontaneous.rates
-}
+orn <- apply(orn, 1, function(x) {x + spontaneous.rates})
 orn[orn < 0] <- 0
-
 
 make.pn.rates <- function(x, R.max=165, sigma=12, m=0.05) {
   pn <- matrix(0, ncol=ncol(x), nrow=nrow(x))
@@ -56,6 +55,10 @@ make.pn.rates <- function(x, R.max=165, sigma=12, m=0.05) {
     }
   }
   return(pn)
+}
+
+add.noise <- function(x, delta=10, alpha=0.025) {
+  return(apply(x, 2, function(x) { x + delta*tanh(alpha*x)*rnorm(length(x)) }))
 }
 
 # plot avg rates
@@ -94,8 +97,92 @@ plot(100*pc.pn^2/sum(pc.pn^2), xlab="PC component", ylab="% variance",ylim=c(0,7
 ## TODO Try to allow only positive weights
 #x <- glmnet(pn, factor(c(rep(0, 55),rep(1,55))), family="binomial")
 # split into two separate groups
-g1 <- lda(pn, factor(c(rep(0,55), rep(1,55))))
-g2 <- lda(pn, factor(c(rep(0,10), rep(1,30), rep(0, 15))))
+set0 <- c(1, rep(0, 109))
+set1 <- c(rep(0,55), rep(1,55))
+set2 <- c(rep(0,30), rep(1,30), rep(0, 50))
+set3 <- c(rep(1,40), rep(0,40), rep(1, 30))
+set4 <- c(rep(1, 10), rep(0,100))
+g1 <- lda(t(pn), factor(set1))
+g2 <- lda(t(pn), factor(set2))
+g3 <- lda(t(pn), factor(set3))
+
+make.model.responses <- function(pn, group, N=100, single.cell=F, method="lda") {  
+  if (method == "lda") {
+    weights <- lda(t(pn), factor(group))$scaling
+  } else if (method == "logreg") {
+    weights <- glm.fit(t(pn), factor(group), family=binomial())$coefficients
+  } else if (method == "nonneg") {
+    coef <- coefficients(penalized(factor(group), t(pn), positive=TRUE))   
+    nonneg.weights <- coef[2:length(coef)]
+    weights <- rep(0, nrow(pn))
+    names(weights) <- rownames(pn)
+    weights[names(nonneg.weights)] <- nonneg.weights
+  }
+  yes <- c()
+  no <- c()
+  for (i in 1:N) {
+    curr.pn <- add.noise(pn)
+    if (single.cell) {
+      total.input <- curr.pn[, 1:ncol(pn) %in% group]
+      yes <- c(yes, (total.input %*% weights)/mean(total.input))
+      other.input <- curr.pn[, !(1:ncol(pn) %in% group)]
+      no <- c(no, unlist(apply(curr.pn[, !(1:ncol(pn) %in% group)], 2, function(x) { (x %*% weights)/mean(x)})))
+    } else {
+      yes <- c(yes, unlist(apply(curr.pn[, as.logical(group)], 2, function(x) { (x %*% weights)/mean(x)})))
+      no <- c(no, unlist(apply(curr.pn[, !as.logical(group)], 2, function(x) { (x %*% weights)/mean(x)})))
+    }
+  }
+  return(list(yes=yes, no=no))
+}
+
+plot.discriminability <- function(pn, N=20) {
+  x <- c()
+  y <- c()
+  for (i in 1:50) {
+    print(i)
+    for (n in 1:N) {      
+      group <- rbinom(110, 1, i/110)
+      if (sum(group) == 0)
+        next 
+      if (sum(group) == 1) {
+        resp <- make.model.responses(pn, group, 100, single.cell=TRUE, method="lda")
+      } else {
+        resp <- make.model.responses(pn, group, 100, method="lda")
+      }
+      y <- c(y, (mean(resp$yes) - mean(resp$no)))
+      x <- c(x,sum(group))
+    }    
+  }
+  plot(x, y)
+  return(list(x=x,y=y))
+}
+
+plot.model.response.hist <- function(response, ymax=100, x.min=-0.5, x.max=0.5) {
+  red <- rgb(1,0,0,alpha=0.75)
+  blue <- rgb(0,0,1,alpha=0.75)
+  hist(response$yes, 100, freq=FALSE, xlim=c(x.min, x.max), ylim=c(0, ymax),  xlab='Total Input', col=red, border=red, main='')
+  par(new=T)
+  hist(response$no, 100, freq=FALSE, xlim=c(x.min, x.max), ylim=c(0, ymax), xlab='Total Input', col=blue, border=blue, main='')
+}
+
+make.lda.response.prob <- function(pn, group, N=1000) {
+  weights <- lda(t(pn), factor(group))$scaling
+  mat <- matrix(0, ncol=ncol(pn), nrow=N)
+  for (i in 1:N) {
+    curr.pn <- add.noise(pn)
+    for (j in 1:ncol(pn)) {
+      mat[i,j] <- ifelse((curr.pn[,j] %*% weights)/mean(curr.pn[,j]) > 0, 1, 0)
+    }
+  }
+  return(apply(mat, 2, mean))
+}
+
+plot.lda.response.hist(make.model.responses(pn, set0, 100, TRUE), 30)
+plot.lda.response.hist(make.model.responses(pn, set1, 100, method="nonneg"), 10) # each cell can't discriminate...
+plot.lda.response.hist(make.model.responses(pn, set2, 100, method="nonneg"), 10)
+plot.lda.response.hist(make.model.responses(pn, set3, 100, method="nonneg"), 10)
+plot.lda.response.hist(make.model.responses(pn, rbinom(110, 1, 0.05), 100, method="lda"), 10, x.min=-0.5, x.max=1.5)
+
 
 # make correlation plots among ORNs
 orn.cor <- cor(orn, use='complete.obs')
@@ -137,42 +224,42 @@ common.odors <- list(E2Hex="E2Hexenal", GerAc="Geranylacetat", Prpyl="Propylacet
 total.trials <- sum(unlist(sapply(SpikesT, function(x) {sapply(x, length)})))
 total.usable <- length(SpikesT)*36*4
 
-make.total.data.matrix <- function(spikes, nr, nc) {
-	all.mat <- matrix(NA, ncol=nc, nrow=nr)
-	for (i in 1:length(spikes)) {
-		labels <- c()
-		n <- 1
-		curr.labels <- names(spikes[[i]])
-		for (j in 1:36) {
-			for (k in 1:4) {				
-				all.mat[i,n] <- ps.rate(spikes[[i]][[j]][[k]])
-				labels <- c(labels, curr.labels[j])
-				n <- n+1
-			}
-		}
-	}
-	colnames(all.mat) <- labels
-	return(all.mat)
+make.total.data.matrix <- function(spikes, nr, nc, num.odors=36, num.reps=4) {
+  all.mat <- matrix(NA, ncol=nc, nrow=nr)
+  for (i in 1:length(spikes)) {
+    labels <- c()
+    n <- 1
+    curr.labels <- names(spikes[[i]])
+    for (j in 1:num.odors) {
+      for (k in 1:num.reps) {				
+        all.mat[i,n] <- ps.rate(spikes[[i]][[j]][[k]])
+        labels <- c(labels, curr.labels[j])
+        n <- n+1
+      }
+    }
+  }
+  colnames(all.mat) <- labels
+  return(all.mat)
 }
 lhn.mat <- make.total.data.matrix(SpikesT, length(mean.rates), 36*4)
 lhn.labels <- factor(colnames(lhn.mat))
 
 binarize.mat.per.cell <- function(mat, labels, blank.names = c("OilBl", "WatBl")) {
-    bl <- labels %in% blank.names
-    num.nonblank <- sum(!bl)
-    labels.nonblank <- labels[!bl]
-    bin.mat <- matrix(0, nrow=nrow(mat), ncol=num.nonblank/4)
-    colnames(bin.mat) <- unique(labels.nonblank)
-    for (i in 1:nrow(mat)) {
-        for (j in unique(labels.nonblank)) {
-            if (sum(mat[i,bl]) > 0) {
-                bin.mat[i,j] <- ifelse(t.test(mat[i,labels %in% j], mat[i,bl])$p.value < 0.05, 1, 0)
-            } else {
-                bin.mat[i,j] <- ifelse(sum(mat[i,labels %in% j]) > 0, 1, 0)
-            }
-        }
+  bl <- labels %in% blank.names
+  num.nonblank <- sum(!bl)
+  labels.nonblank <- labels[!bl]
+  bin.mat <- matrix(0, nrow=nrow(mat), ncol=num.nonblank/4)
+  colnames(bin.mat) <- unique(labels.nonblank)
+  for (i in 1:nrow(mat)) {
+    for (j in unique(labels.nonblank)) {
+      if (sum(mat[i,bl]) > 0) {
+        bin.mat[i,j] <- ifelse(t.test(mat[i,labels %in% j], mat[i,bl])$p.value < 0.05, 1, 0)
+      } else {
+        bin.mat[i,j] <- ifelse(sum(mat[i,labels %in% j]) > 0, 1, 0)
+      }
     }
-    return(bin.mat)
+  }
+  return(bin.mat)
 }
 
 lhn.bin <- binarize.mat.per.cell(lhn.mat, lhn.labels)
@@ -234,7 +321,9 @@ heatmap.2(lhn.common.cor, distfun=function(x) as.dist(1-x), scale='none',Rowv=NA
 
 # do factor analysis...
 
-## Data Analysis
+###################
+## Data Analysis ##
+###################
 
 # Encoding: calculate pobabilities of response given odors
 binarize.trials <- function(mat, labels, blank.names = c("OilBl", "WatBl")) {
@@ -423,6 +512,8 @@ make.D <- function(probs) {
     }
     return(D)
 }
+
+D <- make.D(lhn.probs)
 
 # takes in bin.mat
 # ALGORITHM:
