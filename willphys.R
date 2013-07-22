@@ -13,10 +13,11 @@ require(penalized)
 source("Avg_IgorImport.R")
 source("PSTH_FUNC.R")
 source("ClusteringFunctions.R")
+source("infotheory.R")
+source("decoding.R")
+source("modeling.R")
+source("encoding.R")
 
-
-
-#load("spike_summary_133.rda")
 #badcells=c("nm20130329c0","nm20130206c1", "nm20130606c0")
 #SpikesT <- list()
 #for (x in names(Spikes)) {
@@ -43,23 +44,6 @@ colnames(orn) <- orn.names
 orn <- apply(orn, 1, function(x) {x + spontaneous.rates})
 orn[orn < 0] <- 0
 
-make.pn.rates <- function(x, R.max=165, sigma=12, m=0.05) {
-  pn <- matrix(0, ncol=ncol(x), nrow=nrow(x))
-  rownames(pn) <- rownames(x)
-  colnames(pn) <- colnames(x)
-  # lateral suppression factor
-  for (i in 1:nrow(orn)) {
-    s <- m*sum(orn[i,])
-    for (j in 1:ncol(orn)) {      
-      pn[i,j] <- R.max*((x[i,j]^1.5)/(sigma^1.5 + x[i,j]^1.5 + s^1.5))
-    }
-  }
-  return(pn)
-}
-
-add.noise <- function(x, delta=10, alpha=0.025) {
-  return(apply(x, 2, function(x) { x + delta*tanh(alpha*x)*rnorm(length(x)) }))
-}
 
 # plot avg rates
 nl <- make.pn.rates(orn,m=0)
@@ -84,9 +68,9 @@ barplot(s.nl/mean(s.nl), xlab="Odor", ylab="firing rates/avg", ylim=c(0,2.5), na
 barplot(s.pn/mean(s.pn), xlab="Odor", ylab="firing rates/avg", ylim=c(0,2.5), names.arg=1:nrow(orn),main="PN")
 
 # panel 3
-pc.orn <- princomp(orn)$sdev
-pc.nl <- princomp(nl)$sdev
-pc.pn <- princomp(pn)$sdev
+pc.orn <- princomp(t(orn))$sdev
+pc.nl <- princomp(t(nl))$sdev
+pc.pn <- princomp(t(pn))$sdev
 #par(mfrow=c(1,3))
 plot(100*pc.orn^2/sum(pc.orn^2), xlab="PC component", ylab="% variance", ylim=c(0,75))
 plot(100*pc.nl^2/sum(pc.nl^2), xlab="PC component", ylab="% variance", ylim=c(0,75))
@@ -106,82 +90,11 @@ g1 <- lda(t(pn), factor(set1))
 g2 <- lda(t(pn), factor(set2))
 g3 <- lda(t(pn), factor(set3))
 
-make.model.responses <- function(pn, group, N=100, single.cell=F, method="lda") {  
-  if (method == "lda") {
-    weights <- lda(t(pn), factor(group))$scaling
-  } else if (method == "logreg") {
-    weights <- glm.fit(t(pn), factor(group), family=binomial())$coefficients
-  } else if (method == "nonneg") {
-    coef <- coefficients(penalized(factor(group), t(pn), positive=TRUE))   
-    nonneg.weights <- coef[2:length(coef)]
-    weights <- rep(0, nrow(pn))
-    names(weights) <- rownames(pn)
-    weights[names(nonneg.weights)] <- nonneg.weights
-  }
-  yes <- c()
-  no <- c()
-  for (i in 1:N) {
-    curr.pn <- add.noise(pn)
-    if (single.cell) {
-      total.input <- curr.pn[, 1:ncol(pn) %in% group]
-      yes <- c(yes, (total.input %*% weights)/mean(total.input))
-      other.input <- curr.pn[, !(1:ncol(pn) %in% group)]
-      no <- c(no, unlist(apply(curr.pn[, !(1:ncol(pn) %in% group)], 2, function(x) { (x %*% weights)/mean(x)})))
-    } else {
-      yes <- c(yes, unlist(apply(curr.pn[, as.logical(group)], 2, function(x) { (x %*% weights)/mean(x)})))
-      no <- c(no, unlist(apply(curr.pn[, !as.logical(group)], 2, function(x) { (x %*% weights)/mean(x)})))
-    }
-  }
-  return(list(yes=yes, no=no))
-}
-
-plot.discriminability <- function(pn, N=20) {
-  x <- c()
-  y <- c()
-  for (i in 1:50) {
-    print(i)
-    for (n in 1:N) {      
-      group <- rbinom(110, 1, i/110)
-      if (sum(group) == 0)
-        next 
-      if (sum(group) == 1) {
-        resp <- make.model.responses(pn, group, 100, single.cell=TRUE, method="lda")
-      } else {
-        resp <- make.model.responses(pn, group, 100, method="lda")
-      }
-      y <- c(y, (mean(resp$yes) - mean(resp$no)))
-      x <- c(x,sum(group))
-    }    
-  }
-  plot(x, y)
-  return(list(x=x,y=y))
-}
-
-plot.model.response.hist <- function(response, ymax=100, x.min=-0.5, x.max=0.5) {
-  red <- rgb(1,0,0,alpha=0.75)
-  blue <- rgb(0,0,1,alpha=0.75)
-  hist(response$yes, 100, freq=FALSE, xlim=c(x.min, x.max), ylim=c(0, ymax),  xlab='Total Input', col=red, border=red, main='')
-  par(new=T)
-  hist(response$no, 100, freq=FALSE, xlim=c(x.min, x.max), ylim=c(0, ymax), xlab='Total Input', col=blue, border=blue, main='')
-}
-
-make.lda.response.prob <- function(pn, group, N=1000) {
-  weights <- lda(t(pn), factor(group))$scaling
-  mat <- matrix(0, ncol=ncol(pn), nrow=N)
-  for (i in 1:N) {
-    curr.pn <- add.noise(pn)
-    for (j in 1:ncol(pn)) {
-      mat[i,j] <- ifelse((curr.pn[,j] %*% weights)/mean(curr.pn[,j]) > 0, 1, 0)
-    }
-  }
-  return(apply(mat, 2, mean))
-}
-
-plot.lda.response.hist(make.model.responses(pn, set0, 100, TRUE), 30)
-plot.lda.response.hist(make.model.responses(pn, set1, 100, method="nonneg"), 10) # each cell can't discriminate...
-plot.lda.response.hist(make.model.responses(pn, set2, 100, method="nonneg"), 10)
-plot.lda.response.hist(make.model.responses(pn, set3, 100, method="nonneg"), 10)
-plot.lda.response.hist(make.model.responses(pn, rbinom(110, 1, 0.05), 100, method="lda"), 10, x.min=-0.5, x.max=1.5)
+#plot.lda.response.hist(make.model.responses(pn, set0, 100, TRUE), 30)
+#plot.lda.response.hist(make.model.responses(pn, set1, 100, method="nonneg"), 10) # each cell can't discriminate...
+#plot.lda.response.hist(make.model.responses(pn, set2, 100, method="nonneg"), 10)
+#plot.lda.response.hist(make.model.responses(pn, set3, 100, method="nonneg"), 10)
+#plot.lda.response.hist(make.model.responses(pn, rbinom(110, 1, 0.05), 100, method="lda"), 10, x.min=-0.5, x.max=1.5)
 
 
 # make correlation plots among ORNs
@@ -199,21 +112,6 @@ heatmap.2(pn.odor.cor, distfun=function(x) as.dist(1-x), scale='none', symm=T, c
 ## Analysis of LHN data
 # compute average firing rates
 
-# compute the poststimulus rate in some window
-ps.rate <- function(spikes, start=0.5, end=1.5) {
-  return(length(spikes[spikes >= start & spikes <= end])/(end-start))
-}
-
-# compute the average rate for some odor
-ps.mean.rate <- function(spikes, start=0.5, end=1.5) {
-  rates <- as.vector(sapply(spikes, function(x) { ps.rate(x, start, end)}))
-  return(list(m=mean(rates), s2=var(rates)))
-}
-
-# compute all mean rates for a given cell
-cell.mean.rates <- function(spikes, start=0.5, end=1.5) {
-  return(lapply(spikes, function(x) {ps.mean.rate(x,start, end)}))
-}
 
 mean.rates <- lapply(SpikesT, cell.mean.rates)
 
@@ -224,44 +122,9 @@ common.odors <- list(E2Hex="E2Hexenal", GerAc="Geranylacetat", Prpyl="Propylacet
 total.trials <- sum(unlist(sapply(SpikesT, function(x) {sapply(x, length)})))
 total.usable <- length(SpikesT)*36*4
 
-make.total.data.matrix <- function(spikes, nr, nc, num.odors=36, num.reps=4) {
-  all.mat <- matrix(NA, ncol=nc, nrow=nr)
-  for (i in 1:length(spikes)) {
-    labels <- c()
-    n <- 1
-    curr.labels <- names(spikes[[i]])
-    for (j in 1:num.odors) {
-      for (k in 1:num.reps) {				
-        all.mat[i,n] <- ps.rate(spikes[[i]][[j]][[k]])
-        labels <- c(labels, curr.labels[j])
-        n <- n+1
-      }
-    }
-  }
-  colnames(all.mat) <- labels
-  return(all.mat)
-}
 
 lhn.mat <- make.total.data.matrix(SpikesT, length(mean.rates), 36*4)
 lhn.labels <- factor(colnames(lhn.mat))
-
-binarize.mat.per.cell <- function(mat, labels, blank.names = c("OilBl", "WatBl")) {
-  bl <- labels %in% blank.names
-  num.nonblank <- sum(!bl)
-  labels.nonblank <- labels[!bl]
-  bin.mat <- matrix(0, nrow=nrow(mat), ncol=num.nonblank/4)
-  colnames(bin.mat) <- unique(labels.nonblank)
-  for (i in 1:nrow(mat)) {
-    for (j in unique(labels.nonblank)) {
-      if (sum(mat[i,bl]) > 0) {
-        bin.mat[i,j] <- ifelse(t.test(mat[i,labels %in% j], mat[i,bl])$p.value < 0.05, 1, 0)
-      } else {
-        bin.mat[i,j] <- ifelse(sum(mat[i,labels %in% j]) > 0, 1, 0)
-      }
-    }
-  }
-  return(bin.mat)
-}
 
 lhn.bin <- binarize.mat.per.cell(lhn.mat, lhn.labels)
 
@@ -292,7 +155,7 @@ pc.lhn <- princomp(t(rates.nona.mat))$sdev
 #par(mfrow=c(1,3))
 plot(100* pc.lhn ^2/sum(pc.lhn ^2), xlab="PC component", ylab="% variance", ylim=c(0,75))
 
-# see correltion b/w ORN and PN firing rates and LHN firing rates
+# plot correltion b/w ORN and PN firing rates and LHN firing rates on common odors
 val.common <- val[unlist(common.odors),2]
 orn.common <- orn[unlist(common.odors),]
 pn.common <- pn[unlist(common.odors),]
@@ -320,71 +183,11 @@ heatmap.2(orn.common.cor, distfun=function(x) as.dist(1-x), scale='none', symm=T
 heatmap.2(pn.common.cor, distfun=function(x) as.dist(1-x), scale='none', symm=T, Rowv=NA, Colv=NA, col=jet.colors, trace='none')
 heatmap.2(lhn.common.cor, distfun=function(x) as.dist(1-x), scale='none',Rowv=NA, Colv=NA, symm=T, col=jet.colors, trace='none')
 
-# do factor analysis...
+# TODO factor analysis...
 
 ###################
 ## Data Analysis ##
 ###################
-
-# Encoding: calculate pobabilities of response given odors
-binarize.trials <- function(mat, labels, blank.names = c("OilBl", "WatBl")) {
-    bl <- labels %in% blank.names
-    num.nonblank <- sum(!bl)
-    labels.nonblank <- labels[!bl]
-    bin.mat <- mat[,!bl]
-    for (i in 1:nrow(bin.mat)) {
-        for (j in 1:ncol(bin.mat)) {
-            blank.mean <- mean(mat[i,bl])
-            bin.mat[i,j] <- ifelse(poisson.test(bin.mat[i,j], blank.mean)$p.value < 0.05, 1, 0)
-        }
-    }
-    return(bin.mat)    
-}
-
-# alpha is prior value
-make.trial.probs <- function(bin.mat, num.reps=4, alpha=0.1) {
-  # assumes 4 trials per odor
-  if (is.null(dim(bin.mat))) {
-    probs <- rep(0, length(bin.mat)/num.reps)
-    names(probs) <- unique(names(bin.mat))
-    for (i in unique(names(bin.mat))) {
-      curr.cols <- names(bin.mat) %in% i
-      probs[i] <- (sum(bin.mat[curr.cols])+alpha)/(num.reps+2*alpha)
-    }
-  } else {
-    probs <- matrix(0, nrow=nrow(bin.mat), ncol=ncol(bin.mat)/num.reps)
-    colnames(probs) <- unique(colnames(bin.mat))
-    for (i in 1:nrow(bin.mat)) {
-      for (j in unique(colnames(bin.mat))) {
-        curr.cols <- colnames(bin.mat) %in% j
-        probs[i,j] <- (sum(bin.mat[i,curr.cols])+alpha)/(num.reps+2*alpha)
-      }
-    }
-  }
-  return(probs)
-}
-
-# class.labels is vector of class label for each cell
-make.class.probs <- function(bin.mat, class.labels, num.reps=4, alpha=0.1) {
-  labels <- unique(class.labels)
-  odors <- unique(colnames(bin.mat))
-  probs <- matrix(0, nrow=length(labels), ncol=ncol(bin.mat)/num.reps)
-  rownames(probs) <- unique(class.labels)
-  colnames(probs) <- unique(colnames(bin.mat))
-  for (i in 1:length(labels)) {
-    for (j in 1:length(odors)) {
-      curr.label <- labels[i]
-      curr.odor <- odors[j]
-      if (sum(class.labels == curr.label) > 1) {
-        curr <- bin.mat[class.labels %in% curr.label, colnames(bin.mat) %in% curr.odor]
-        probs[i,j] <- (sum(curr) + alpha)/(nrow(curr)*num.reps + 2*alpha)
-      } else {
-       probs[i,j] <- (sum(bin.mat[class.labels %in% curr.label, colnames(bin.mat) %in% curr.odor])+alpha)/(num.reps+2*alpha)
-     }
-    }
-  }
-  return(probs)
-}
   
 lhn.trial.bin <- binarize.trials(lhn.mat, lhn.labels)
 lhn.probs <- make.trial.probs(lhn.trial.bin)
@@ -395,18 +198,6 @@ lhn.probs <- make.trial.probs(lhn.trial.bin)
 # -- Use total population data
 # train on 3 examples for each cell and test on last
 
-make.trial.rates <- function(mat, alpha=0.1) {
-    # assumes 3 trials per odor in training set
-    rates <- matrix(0, nrow=nrow(mat), ncol=ncol(mat)/3)
-    colnames(rates) <- unique(colnames(mat))
-    for (i in 1:nrow(mat)) {
-        for (j in unique(colnames(mat))) {
-            curr.cols <- colnames(mat) %in% j
-            rates[i,j] <- mean(mat[i,curr.cols])
-        }
-    }
-    return(rates)
-}
 
 lhn.mat.noblank <- lhn.mat[, !(colnames(lhn.mat) %in% c("OilBl", "WatBl"))]
 leave.out <- seq(1,ncol(lhn.mat.noblank),4)
@@ -415,190 +206,16 @@ test.lhn.rates <- lhn.mat.noblank[,leave.out]
 train.lhn.bin <- make.trial.probs(lhn.trial.bin[,!(1:ncol(lhn.trial.bin) %in% leave.out)], 3)
 test.lhn.bin <- lhn.trial.bin[,leave.out]
 
-pois <- function(k,l) {
-    return(((l^k)*exp(-l))/factorial(k))
-}
-
-# first do with naive independence assumption (factor so that p(x|s) = \prod_i p(x_i|s)
-# Try with rates and Poisson emissions
-classify.naive.poisson <- function(train, test) {
-    # rows are odors, cols are probs
-    label.probs <- matrix(0, nrow=ncol(test), ncol=ncol(test))
-    colnames(label.probs) <- colnames(train)
-    rownames(label.probs) <- rownames(train)
-    for (i in 1:ncol(test)) {
-        for (j in 1:ncol(test)) {
-            label.probs[i,j] <- sum(log(ppois(test[,i], train[,j])))
-        }                                
-    }
-    labels <- apply(label.probs, 1, which.max)
-    return(labels)
-}
-
-classify.naive.binom <- function(train, test) {
-    if (is.null(dim(train))) {
-        label.probs <- matrix(0, nrow=length(train), ncol=length(train))
-    } else {
-        label.probs <- matrix(0, nrow=ncol(test), ncol=ncol(test))
-    }
-    colnames(label.probs) <- colnames(train)
-    rownames(label.probs) <- rownames(train)
-    for (i in 1:ncol(label.probs)) {
-        for (j in 1:ncol(label.probs)) {
-            if (is.null(dim(train))) {
-                label.probs[i,j] <- log(ifelse(test[i] == 1, train[j], 1-train[j]))
-            } else {
-                label.probs[i,j] <- sum(log(ifelse(test[,i] == 1, train[,j], 1-train[,j])))
-            }
-        }
-    }
-    labels <- apply(label.probs, 1, which.max)
-    return(labels)
-}
-
-cross.validate <- function(mat) {
-    accuracy <- c()
-    for (i in 0:3) {
-        leave.out <- seq(1, ncol(mat), 4)+i
-        train <- make.trial.probs(mat[,!(1:ncol(mat) %in% leave.out)], 3)
-        test <- mat[,leave.out]
-        labels <- classify.naive.binom(train, test)
-        accuracy <- c(accuracy, sum(labels == 1:34)/34)
-    }
-    return(accuracy)
-}
-
-# then do allowing pairwise interactions? Maybe unnecessary b/c so accurate
-
-# -- Compare with leaving out single neurons
-cross.validate.leaveout <- function(mat) {
-    accuracy <- c()
-    for (i in 1:nrow(mat)) {
-        temp.mat <- mat[!(1:nrow(mat) %in% i),]
-        accuracy <- c(accuracy,mean(cross.validate(temp.mat)))
-    }
-    return(accuracy)
-}
-
-# TODO Compute cross-validated accuracy with shuffled labels for comparison
-
-# -- collapse to clusters and redo prediction
-
-# -- Compare with single neuron predictions
-single.neuron.pred <- function(mat) {
-    accuracy <- c()
-    for (i in 1:nrow(mat)) {
-        curr.acc <- c()
-        for (j in 0:3) {
-            leave.out <- seq(1, ncol(mat), 4) + j     
-            train <- make.trial.probs(mat[i, !(1:ncol(mat) %in% leave.out)], 3)
-            test <- mat[i, leave.out]
-            labels <- classify.naive.binom(train, test)
-            curr.acc <- c(curr.acc, sum(labels == 1:34)/34)
-        }
-        accuracy <- c(accuracy, mean(curr.acc))
-    }
-    return(accuracy)
-}
-
-# info theory
-# Mutual information b/w responses and cell identity (conditional on stimulus)
-# I(r; i|s) = 1/N \sum_{i=1}^N \sum_r p(r|s, i) log_2 (p(r|s,i)/p(r|s)) bits
-# where p(r|s) = 1/N \sum_{i=1}^N p(r|s, i)
-# can then compute <I(r;i|s)> over all stimuli => <I(r;i|s)> = \sum_k p(s_k) I(r;i|s_k)
-# in the case of p(s_k) = 1/K for all s_k, then equals 1/K \sum_k I(r;i|s_k) which is just the empirical mean
-
-# Function takes probs matrix where rows are cells and columns are stimuli
-# returns vector of mutual information between response and stimuli
-mutual.info <- function(probs) {
-    I <- c()
-    p.rs <- apply(probs, 2, mean)
-    for (i in 1:ncol(probs)) {
-       I <- c(I, mean(probs[,i]*log2(probs[,i]/p.rs[i])+(1-probs[,i])*log2((1-probs[,i])/(1-p.rs[i]))))
-    }
-    return(I)
-}
-
-# RELATIVE ENTROPY MATRIX
-# Compute D_ij = <D_JS[p(r|i,s)||p(r|j,s)]>_s = 1/K \sum_k D_JS[p(r|i,s_k)||p(r|j,s_k)]
-# and D_JS[P||Q] = \sum_i log2(P(i)/Q(i))p(i)
-# or, in this case,
-# D_JS[p(r|i,s_k)||p(r|j,s_k)] = log2(p(1|i,s_k)/p(1|j,s_k))p(1|i,s_k) + log2(p(0|i,s_k)/p(0|j,s_k)p(0|i,s_k)
-# = log2(p(1|i,s_k)/p(1|j,s_k))p(1|i,s_k) + log2(1-p(1|i,s_k)/(1-p(1|j,s_k)))(1-p(1|i,s_k))
-
-make.D <- function(probs) {
-    D <- matrix(0, nrow=nrow(probs), ncol=nrow(probs))
-    for (i in 1:nrow(D)) {
-        for (j in 1:nrow(D)) {
-            D[i,j] <- mean(log2(probs[i,]/probs[j,])*probs[i,] + log2((1-probs[i,])/(1-probs[j,]))*(1-probs[i,]))
-        }
-    }
-    return(D)
-}
-
 D <- make.D(lhn.probs)
 
-# takes in bin.mat
-# ALGORITHM:
-# compute probs for all cells
-# while
-#  - estimate probs using current cluster assignments
-#  - compute relatives entropies D
-#  - merge two cells with minimum D_ij
-
-get.min.cluster <- function(D, labels) {
-  min.val <- 1E10
-  min.idx <- 0
-  for (i in 1:nrow(D)) {
-    for (j in 1:ncol(D)) {
-      if (i != j) {
-        if (min.val > D[i,j]) {
-          min.idx <- c(i,j)
-          min.val <- D[i,j]
-        }
-      }
-    }
-  }
-  return(min.idx)
-}
 
 # returns labels with c1 and c2 merged
-merge.clusters <- function(labels, c1, c2) {
-  next.clust <- max(unique(labels)) + 1
-  labels[labels == c1 | labels == c2] <- next.clust
-  new.labels <- labels
-  n <- 1
-  for (i in unique(labels)) {
-    new.labels[labels == i] <- n
-    n <- n+1
-  }
-  return(new.labels)
-}
-
-info.cluster <- function(bin.mat) {
-  labels <- 1:nrow(bin.mat)
-  probs <- make.class.probs(bin.mat, labels)
-  D <- make.D(probs)
-  to.merge <- get.min.cluster(D, labels)
-  labels <- merge.clusters(labels, to.merge[1], to.merge[2])
-  for (i in 1:(nrow(bin.mat)-1)) {
-    probs <- make.class.probs(bin.mat, labels)
-    D <- make.D(probs)
-    to.merge <- get.min.cluster(D, labels)
-    print(labels)
-    labels <- merge.clusters(labels, to.merge[1], to.merge[2])
-  }
-  return(info.cluster.helper(bin.mat, labels))
-}
 
 # use single-linkage clustering to get minimum info dists
 
 D <- make.D(lhn.probs)
 heatmap.2(D, hclustfun = function(x) { hclust(as.dist(x), method="complete") }, scale='none', symm=T, trace='none', col=bin.rev.colors)
 
-entropy.binom <- function(p) {
-    return(- p*log2(p) - (1-p)*log2(1-p))
-}
 
 entropies <- c()
 for (i in 1:nrow(train.lhn.bin)) {
