@@ -16,6 +16,13 @@ mutual.info <- function(probs) {
     return(I)
 }
 
+cluster.mutual.info <- function(curr.data, num.classes) {
+    clust <- hclust(as.dist(1-cor(t(curr.data))))
+    clust.labels <- cutree(clust, k=num.classes)
+    clust.probs <- make.class.probs(curr.data, clust.labels)
+    return(mean(mutual.info(clust.probs)))
+}
+
 # RELATIVE ENTROPY MATRIX
 # Compute D_ij = <D_JS[p(r|i,s)||p(r|j,s)]>_s = 1/K \sum_k D_JS[p(r|i,s_k)||p(r|j,s_k)]
 # and D_JS[P||Q] = \sum_i log2(P(i)/Q(i))p(i)

@@ -1,3 +1,5 @@
+source("encoding.R")
+
 pois <- function(k,l) {
     return(((l^k)*exp(-l))/factorial(k))
 }
@@ -55,11 +57,26 @@ make.trial.rates <- function(mat) {
     return(rates)
 }
 
-cross.validate <- function(mat, num.reps=4, num.odors=34) {
+cross.validate <- function(mat, num.classes=NA, num.reps=4, num.odors=34) {
     accuracy <- c()
     for (i in 0:(num.reps-1)) {
         leave.out <- seq(1, ncol(mat), num.reps)+i
-        train <- make.trial.probs(mat[,!(1:ncol(mat) %in% leave.out)], num.reps-1)
+        curr.data <- mat[,!(1:ncol(mat) %in% leave.out)]
+        if (is.na(num.classes)) {
+            train <- make.trial.probs(curr.data, num.reps-1)
+        } else {
+ #           D <- make.D(curr.data)
+            clust <- hclust(as.dist(1-cor(t(curr.data))))
+            clust.labels <- cutree(clust, k=num.classes)
+            clust.train <- make.class.probs(curr.data, clust.labels, num.reps-1)
+            train <- matrix(0, nrow=nrow(mat), ncol=ncol(mat)/num.reps)
+            # replace the individual probability with the class probability
+            for (k in 1:num.classes) {
+                for (i in which(clust.labels == k)) {
+                    train[i,] <- clust.train[k,]
+                }
+            }
+        }
         test <- mat[,leave.out]
         labels <- classify.naive.binom(train, test)
         accuracy <- c(accuracy, sum(labels == 1:num.odors)/num.odors)

@@ -174,7 +174,7 @@ lhn.odors.cor <- cor(t(rates.nona.mat), use='complete.obs')
 orn.common.cor <- cor(t(orn.common), use='complete.obs')
 pn.common.cor <- cor(t(pn.common), use='complete.obs')
 lhn.common.cor <- cor(t(lhn.common), use='complete.obs')
-heatmap.2(lhn.cor, distfun=function(x) as.dist(1-x), scale='none', symm=T, col=jet.colors, trace='none')
+heatmap.2(lhn.cor, hclustfun=function(x) hclust(x, method='complete'), distfun=function(x) as.dist(1-x), scale='none', symm=T, col=jet.colors, trace='none')
 hist(lhn.cor, main="LHN Cross-correlation", xlab="Correlation Coefficient")
 heatmap.2(lhn.odors.cor, distfun=function(x) as.dist(1-x), scale='none', symm=T, col=jet.colors, trace='none')
 
@@ -192,11 +192,13 @@ heatmap.2(lhn.common.cor, distfun=function(x) as.dist(1-x), scale='none',Rowv=NA
 lhn.trial.bin <- binarize.trials(lhn.mat, lhn.labels)
 lhn.probs <- make.trial.probs(lhn.trial.bin)
 
+# Show how clustering affects classification accuracy
+success.rates <- sapply(1:nrow(lhn.trial.bin), function(x) mean(cross.validate(lhn.trial.bin, num.classes=x)))
+plot(success.rates, xlab="Number of Clusters", ylab="Mean % Odors Correctly Identified", type='l')
+# normalized mutual information scores
+MI.scores <- sapply(1:nrow(lhn.trial.bin), function(x) cluster.mutual.info(lhn.trial.bin,x))/mean(mutual.info(lhn.probs))
+plot(MI.scores, ylab="Normalized Information About Stimulus", xlab="Number of Clusters", type='l')
 # TODO Calculate mutual information and show redundancy
-
-# Decoding: try to predict odors given population data
-# -- Use total population data
-# train on 3 examples for each cell and test on last
 
 
 lhn.mat.noblank <- lhn.mat[, !(colnames(lhn.mat) %in% c("OilBl", "WatBl"))]
@@ -207,9 +209,6 @@ train.lhn.bin <- make.trial.probs(lhn.trial.bin[,!(1:ncol(lhn.trial.bin) %in% le
 test.lhn.bin <- lhn.trial.bin[,leave.out]
 
 D <- make.D(lhn.probs)
-
-
-# returns labels with c1 and c2 merged
 
 # use single-linkage clustering to get minimum info dists
 
