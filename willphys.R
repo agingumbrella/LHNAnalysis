@@ -241,6 +241,7 @@ make.total.data.matrix <- function(spikes, nr, nc, num.odors=36, num.reps=4) {
   colnames(all.mat) <- labels
   return(all.mat)
 }
+
 lhn.mat <- make.total.data.matrix(SpikesT, length(mean.rates), 36*4)
 lhn.labels <- factor(colnames(lhn.mat))
 
@@ -342,26 +343,49 @@ binarize.trials <- function(mat, labels, blank.names = c("OilBl", "WatBl")) {
 
 # alpha is prior value
 make.trial.probs <- function(bin.mat, num.reps=4, alpha=0.1) {
-    # assumes 4 trials per odor
-    if (is.null(dim(bin.mat))) {
-        probs <- rep(0, length(bin.mat)/num.reps)
-        names(probs) <- unique(names(bin.mat))
-        for (i in unique(names(bin.mat))) {
-            curr.cols <- names(bin.mat) %in% i
-            probs[i] <- (sum(bin.mat[curr.cols])+alpha)/(num.reps+2*alpha)
-        }
-    } else {
-        probs <- matrix(0, nrow=nrow(bin.mat), ncol=ncol(bin.mat)/num.reps)
-        colnames(probs) <- unique(colnames(bin.mat))
-        for (i in 1:nrow(bin.mat)) {
-            for (j in unique(colnames(bin.mat))) {
-                curr.cols <- colnames(bin.mat) %in% j
-                probs[i,j] <- (sum(bin.mat[i,curr.cols])+alpha)/(num.reps+2*alpha)
-            }
-        }
+  # assumes 4 trials per odor
+  if (is.null(dim(bin.mat))) {
+    probs <- rep(0, length(bin.mat)/num.reps)
+    names(probs) <- unique(names(bin.mat))
+    for (i in unique(names(bin.mat))) {
+      curr.cols <- names(bin.mat) %in% i
+      probs[i] <- (sum(bin.mat[curr.cols])+alpha)/(num.reps+2*alpha)
     }
-    return(probs)
+  } else {
+    probs <- matrix(0, nrow=nrow(bin.mat), ncol=ncol(bin.mat)/num.reps)
+    colnames(probs) <- unique(colnames(bin.mat))
+    for (i in 1:nrow(bin.mat)) {
+      for (j in unique(colnames(bin.mat))) {
+        curr.cols <- colnames(bin.mat) %in% j
+        probs[i,j] <- (sum(bin.mat[i,curr.cols])+alpha)/(num.reps+2*alpha)
+      }
+    }
+  }
+  return(probs)
 }
+
+# class.labels is vector of class label for each cell
+make.class.probs <- function(bin.mat, class.labels, num.reps=4, alpha=0.1) {
+  labels <- unique(class.labels)
+  odors <- unique(colnames(bin.mat))
+  probs <- matrix(0, nrow=length(labels), ncol=ncol(bin.mat)/num.reps)
+  rownames(probs) <- unique(class.labels)
+  colnames(probs) <- unique(colnames(bin.mat))
+  for (i in 1:length(labels)) {
+    for (j in 1:length(odors)) {
+      curr.label <- labels[i]
+      curr.odor <- odors[j]
+      if (sum(class.labels == curr.label) > 1) {
+        curr <- bin.mat[class.labels %in% curr.label, colnames(bin.mat) %in% curr.odor]
+        probs[i,j] <- (sum(curr) + alpha)/(nrow(curr)*num.reps + 2*alpha)
+      } else {
+       probs[i,j] <- (sum(bin.mat[class.labels %in% curr.label, colnames(bin.mat) %in% curr.odor])+alpha)/(num.reps+2*alpha)
+     }
+    }
+  }
+  return(probs)
+}
+  
 lhn.trial.bin <- binarize.trials(lhn.mat, lhn.labels)
 lhn.probs <- make.trial.probs(lhn.trial.bin)
 
@@ -405,7 +429,6 @@ classify.naive.poisson <- function(train, test) {
     for (i in 1:ncol(test)) {
         for (j in 1:ncol(test)) {
             label.probs[i,j] <- sum(log(ppois(test[,i], train[,j])))
-
         }                                
     }
     labels <- apply(label.probs, 1, which.max)
@@ -429,7 +452,6 @@ classify.naive.binom <- function(train, test) {
             }
         }
     }
-
     labels <- apply(label.probs, 1, which.max)
     return(labels)
 }
@@ -503,6 +525,7 @@ mutual.info <- function(probs) {
 # or, in this case,
 # D_JS[p(r|i,s_k)||p(r|j,s_k)] = log2(p(1|i,s_k)/p(1|j,s_k))p(1|i,s_k) + log2(p(0|i,s_k)/p(0|j,s_k)p(0|i,s_k)
 # = log2(p(1|i,s_k)/p(1|j,s_k))p(1|i,s_k) + log2(1-p(1|i,s_k)/(1-p(1|j,s_k)))(1-p(1|i,s_k))
+
 make.D <- function(probs) {
     D <- matrix(0, nrow=nrow(probs), ncol=nrow(probs))
     for (i in 1:nrow(D)) {
@@ -523,11 +546,55 @@ D <- make.D(lhn.probs)
 #  - compute relatives entropies D
 #  - merge two cells with minimum D_ij
 
-info.cluster <- function(bin.mat) {
+get.min.cluster <- function(D, labels) {
+  min.val <- 1E10
+  min.idx <- 0
+  for (i in 1:nrow(D)) {
+    for (j in 1:ncol(D)) {
+      if (i != j) {
+        if (min.val > D[i,j]) {
+          min.idx <- c(i,j)
+          min.val <- D[i,j]
+        }
+      }
+    }
+  }
+  return(min.idx)
 }
 
+# returns labels with c1 and c2 merged
+merge.clusters <- function(labels, c1, c2) {
+  next.clust <- max(unique(labels)) + 1
+  labels[labels == c1 | labels == c2] <- next.clust
+  new.labels <- labels
+  n <- 1
+  for (i in unique(labels)) {
+    new.labels[labels == i] <- n
+    n <- n+1
+  }
+  return(new.labels)
+}
+
+info.cluster <- function(bin.mat) {
+  labels <- 1:nrow(bin.mat)
+  probs <- make.class.probs(bin.mat, labels)
+  D <- make.D(probs)
+  to.merge <- get.min.cluster(D, labels)
+  labels <- merge.clusters(labels, to.merge[1], to.merge[2])
+  for (i in 1:(nrow(bin.mat)-1)) {
+    probs <- make.class.probs(bin.mat, labels)
+    D <- make.D(probs)
+    to.merge <- get.min.cluster(D, labels)
+    print(labels)
+    labels <- merge.clusters(labels, to.merge[1], to.merge[2])
+  }
+  return(info.cluster.helper(bin.mat, labels))
+}
+
+# use single-linkage clustering to get minimum info dists
+
 D <- make.D(lhn.probs)
-heatmap.2(D, scale='none', symm=T, trace='none', col=bin.rev.colors)
+heatmap.2(D, hclustfun = function(x) { hclust(as.dist(x), method="complete") }, scale='none', symm=T, trace='none', col=bin.rev.colors)
 
 entropy.binom <- function(p) {
     return(- p*log2(p) - (1-p)*log2(1-p))
