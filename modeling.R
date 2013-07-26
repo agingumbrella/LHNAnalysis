@@ -67,10 +67,10 @@ plot.discriminability <- function(pn, N=20) {
   return(list(x=x,y=y))
 }
 
-plot.model.response.hist <- function(response, ymax=100, x.min=-0.5, x.max=0.5) {
+plot.model.response.hist <- function(response, ymax=100, x.min=-0.5, x.max=0.5, title = '') {
   red <- rgb(1,0,0,alpha=0.75)
   blue <- rgb(0,0,1,alpha=0.75)
-  hist(response$yes, 100, freq=FALSE, xlim=c(x.min, x.max), ylim=c(0, ymax),  xlab='Total Input', col=red, border=red, main='')
+  hist(response$yes, 100, freq=FALSE, xlim=c(x.min, x.max), ylim=c(0, ymax),  xlab='Total Input', col=red, border=red, main=title)
   par(new=T)
   hist(response$no, 100, freq=FALSE, xlim=c(x.min, x.max), ylim=c(0, ymax), xlab='Total Input', col=blue, border=blue, main='')
 }

@@ -6,6 +6,7 @@ require(gplots)
 require(glmnet)
 require(MASS)
 require(penalized)
+require(scatterplot3d)>
 #require(e1071)
 #require(nnet)
 #require(gptk)
@@ -17,6 +18,7 @@ source("infotheory.R")
 source("decoding.R")
 source("modeling.R")
 source("encoding.R")
+source("preprocessing.R")
 
 #badcells=c("nm20130329c0","nm20130206c1", "nm20130606c0")
 #SpikesT <- list()
@@ -76,6 +78,7 @@ plot(100*pc.orn^2/sum(pc.orn^2), xlab="PC component", ylab="% variance", ylim=c(
 plot(100*pc.nl^2/sum(pc.nl^2), xlab="PC component", ylab="% variance", ylim=c(0,75))
 plot(100*pc.pn^2/sum(pc.pn^2), xlab="PC component", ylab="% variance",ylim=c(0,75))
 
+
 ## Assign weights using LDA
 ##
 ## TODO Try to allow only positive weights
@@ -95,6 +98,20 @@ g3 <- lda(t(pn), factor(set3))
 #plot.lda.response.hist(make.model.responses(pn, set2, 100, method="nonneg"), 10)
 #plot.lda.response.hist(make.model.responses(pn, set3, 100, method="nonneg"), 10)
 #plot.lda.response.hist(make.model.responses(pn, rbinom(110, 1, 0.05), 100, method="lda"), 10, x.min=-0.5, x.max=1.5)
+
+# find subsets of highly correlated odors
+# show PN 
+pn.factors <- prcomp(t(pn))$x
+#pn.factor.clust <- hclust(dist(pn.factors[,1:10]), method="ward")
+pn.cor.clust <- hclust(as.dist(1-cor(pn)))
+num.pn.clusts <- 12
+pn.factor.labels <- cutree(pn.cor.clust, num.pn.clusts)
+par(mfrow=c(3,4))
+for (i in 1:num.pn.clusts) {
+    curr <- ifelse(pn.factor.labels == i, 1, 0)
+#    g <- lda(t(pn), factor(curr))
+    plot.model.response.hist(make.model.responses(pn, curr, 100, TRUE, method="lda"), 30, title=paste("Cluster", i))
+}
 
 
 # make correlation plots among ORNs
@@ -121,7 +138,6 @@ common.odors <- list(E2Hex="E2Hexenal", GerAc="Geranylacetat", Prpyl="Propylacet
 
 total.trials <- sum(unlist(sapply(SpikesT, function(x) {sapply(x, length)})))
 total.usable <- length(SpikesT)*36*4
-
 
 lhn.mat <- make.total.data.matrix(SpikesT, length(mean.rates), 36*4)
 lhn.labels <- factor(colnames(lhn.mat))
@@ -155,15 +171,20 @@ pc.lhn <- princomp(t(rates.nona.mat))$sdev
 #par(mfrow=c(1,3))
 plot(100* pc.lhn ^2/sum(pc.lhn ^2), xlab="PC component", ylab="% variance", ylim=c(0,75))
 
+
 # plot correltion b/w ORN and PN firing rates and LHN firing rates on common odors
 val.common <- val[unlist(common.odors),2]
-orn.common <- orn[unlist(common.odors),]
-pn.common <- pn[unlist(common.odors),]
+orn.common <- orn[,unlist(common.odors)]
+pn.common <- pn[,unlist(common.odors)]
 lhn.common <- rates.nona.mat[unlist(names(common.odors)),]
 rownames(lhn.common) <- unlist(common.odors)
 orn.pn.corr <- cor(orn.common, pn.common)
 orn.lhn.corr <- cor(orn.common, lhn.common)
-pn.lhn.corr <- cor(pn.common, lhn.common)
+pn.lhn.corr <- cor(t(pn.common), lhn.common)
+
+plot(prcomp(lhn.common)$x[,1:2],xlim=c(-80,80),ylim=c(-80,80),col='magenta')
+par(new=T)
+plot(prcomp(pn.common)$x[,1:2],xlim=c(-80,80),ylim=c(-80,80),col='cyan')
 
 heatmap.2(orn.lhn.corr, col=jet.colors,scale='none', trace='none')
 heatmap.2(pn.lhn.corr, col=jet.colors,scale='none', trace='none')
@@ -184,6 +205,7 @@ heatmap.2(pn.common.cor, distfun=function(x) as.dist(1-x), scale='none', symm=T,
 heatmap.2(lhn.common.cor, distfun=function(x) as.dist(1-x), scale='none',Rowv=NA, Colv=NA, symm=T, col=jet.colors, trace='none')
 
 # TODO factor analysis...
+
 
 ###################
 ## Data Analysis ##
@@ -214,9 +236,19 @@ D <- make.D(lhn.probs)
 
 D <- make.D(lhn.probs)
 heatmap.2(D, hclustfun = function(x) { hclust(as.dist(x), method="complete") }, scale='none', symm=T, trace='none', col=bin.rev.colors)
+labels = cutree(hclust(as.dist(D), method="complete"),4)
 
+## Try clustering principal components
+pcs <- prcomp(t(rates.nona.mat[, !(colnames(rates.nona.mat) %in% c("OilBl", "WatBl"))]))
+#pcs <- prcomp(lhn.mat.noblank)
+clust <- hclust(dist(pcs$x[,1:3]))
+labels <- cutree(clust,5)
+heatmap.2(pcs$x[,1:3], scale='none', Colv=NA, trace='none', col=jet.colors, distfun=function(x) dist(x))
+scatterplot3d(pcs$x[,1:3], color=cut(labels,4, labels=c("cyan", "magenta", "black","red")))
+# doesn't really work that well...
 
-entropies <- c()
-for (i in 1:nrow(train.lhn.bin)) {
-    entropies <- c(entropies, sum(entropy.binom(train.lhn.bin[i,])))
-}
+## Look for combinations of PN factors that predict LHN
+# use first 5 factors of odor responses and try to predict?
+#pn.factors <- nmf(pn,5)
+#odor.factors <- fit(pn.factors)@H
+
