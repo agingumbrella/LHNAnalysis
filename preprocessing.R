@@ -45,6 +45,7 @@ binarize.mat.per.cell <- function(mat, labels, blank.names = c("OilBl", "WatBl")
   labels.nonblank <- labels[!bl]
   bin.mat <- matrix(0, nrow=nrow(mat), ncol=num.nonblank/4)
   colnames(bin.mat) <- unique(labels.nonblank)
+  rownames(bin.mat) <- rownames(mat)
   for (i in 1:nrow(mat)) {
     for (j in unique(labels.nonblank)) {
       if (sum(mat[i,bl]) > 0) {
@@ -55,4 +56,22 @@ binarize.mat.per.cell <- function(mat, labels, blank.names = c("OilBl", "WatBl")
     }
   }
   return(bin.mat)
+}
+
+# make per cell average firing rates
+make.rate.per.cell <- function(mean.rates, goodors){
+  # make matrix of rat
+  rates.mat <- matrix(0, ncol=length(mean.rates), nrow=length(goododors))
+  rownames(rates.mat) <- goododors
+  colnames(rates.mat) <- names(mean.rates)
+  for (j in names(mean.rates)) {
+    for (i in goododors) {
+      if (i %in% names(mean.rates[[j]])) {
+        rates.mat[[i,j]] <- mean.rates[[j]][[i]]$m
+      } else {
+        rates.mat[[i,j]] <- NA
+      }
+    }
+  }
+  return(rates.mat)
 }

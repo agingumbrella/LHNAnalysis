@@ -17,7 +17,11 @@ mutual.info <- function(probs) {
 }
 
 cluster.mutual.info <- function(curr.data, num.classes) {
-    clust <- hclust(as.dist(1-cor(t(curr.data))))
+  print(num.classes)
+  train <- make.trial.probs(curr.data, 4)
+  D <- make.D(train)
+  clust <- hclust(as.dist(D))
+#    clust <- hclust(as.dist(1-cor(t(curr.data))))
     clust.labels <- cutree(clust, k=num.classes)
     clust.probs <- make.class.probs(curr.data, clust.labels)
     return(mean(mutual.info(clust.probs)))

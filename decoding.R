@@ -1,5 +1,9 @@
 source("encoding.R")
 
+confusion.matrix <- function(res) {
+
+}
+
 pois <- function(k,l) {
     return(((l^k)*exp(-l))/factorial(k))
 }
@@ -59,14 +63,18 @@ make.trial.rates <- function(mat) {
 
 cross.validate <- function(mat, num.classes=NA, num.reps=4, num.odors=34) {
     accuracy <- c()
+    print(num.classes)
     for (i in 0:(num.reps-1)) {
         leave.out <- seq(1, ncol(mat), num.reps)+i
         curr.data <- mat[,!(1:ncol(mat) %in% leave.out)]
         if (is.na(num.classes)) {
             train <- make.trial.probs(curr.data, num.reps-1)
         } else {
- #           D <- make.D(curr.data)
-            clust <- hclust(as.dist(1-cor(t(curr.data))))
+         train <- make.trial.probs(curr.data, num.reps-1)
+            D <- make.D(train)
+           clust <- hclust(as.dist(D))
+#           clust <- hclust(as.dist(1-cor(t(curr.data))))
+
             clust.labels <- cutree(clust, k=num.classes)
             clust.train <- make.class.probs(curr.data, clust.labels, num.reps-1)
             train <- matrix(0, nrow=nrow(mat), ncol=ncol(mat)/num.reps)
@@ -101,6 +109,7 @@ cross.validate.leaveout <- function(mat) {
 # -- collapse to clusters and redo prediction
 
 # -- Compare with single neuron predictions
+# returns 
 single.neuron.pred <- function(mat) {
     accuracy <- c()
     for (i in 1:nrow(mat)) {
@@ -115,4 +124,24 @@ single.neuron.pred <- function(mat) {
         accuracy <- c(accuracy, mean(curr.acc))
     }
     return(accuracy)
+}
+
+# returns confusion matrix
+single.neuron.confusion <- function(mat) {
+  confusion <- matrix(0, nrow=ncol(mat), ncol=ncol(mat))
+  for (i in 1:nrow(mat)) {
+    for (j in 0:3) {
+      leave.out <- seq(1, ncol(mat), 4) + j     
+      train <- make.trial.probs(mat[i, !(1:ncol(mat) %in% leave.out)], 3)
+      test <- mat[i, leave.out]
+      labels <- classify.naive.binom(train, test)
+      for (m in 1:ncol(mat)) {
+        for (n in 1:ncol(mat)) {
+          confusion[m,labels[n]] <- confusion[m,labels[n]] + 1
+        }
+      }
+    }
+  }
+    # create 
+   return(confusion)
 }
