@@ -7,24 +7,32 @@
 
 # Function takes probs matrix where rows are cells and columns are stimuli
 # returns vector of mutual information between response and stimuli
-mutual.info <- function(probs) {
+mutual.info <- function(probs, binom=T) {
     I <- c()
     p.rs <- apply(probs, 2, mean)
     for (i in 1:ncol(probs)) {
-       I <- c(I, mean(probs[,i]*log2(probs[,i]/p.rs[i])+(1-probs[,i])*log2((1-probs[,i])/(1-p.rs[i]))))
+      if (binom) {
+        I <- c(I, mean(probs[,i]*log2(probs[,i]/p.rs[i])+(1-probs[,i])*log2((1-probs[,i])/(1-p.rs[i]))))
+      } else {
+        # do nothing
+      }
     }
     return(I)
 }
 
-cluster.mutual.info <- function(curr.data, num.classes) {
+# cluster using relative entropy (an approximation to clustering using mutual info)
+cluster.mutual.info <- function(curr.data, num.classes, binom=T) {
   print(num.classes)
-  train <- make.trial.probs(curr.data, 4)
-  D <- make.D(train)
+  if (binom) {
+    train <- make.trial.probs.binom(curr.data, 4)
+  } else {
+    train <- make.trial.probs.multi(curr.data, 4)
+  }
+  D <- make.D(train, binom)
   clust <- hclust(as.dist(D))
-#    clust <- hclust(as.dist(1-cor(t(curr.data))))
-    clust.labels <- cutree(clust, k=num.classes)
-    clust.probs <- make.class.probs(curr.data, clust.labels)
-    return(mean(mutual.info(clust.probs)))
+  clust.labels <- cutree(clust, k=num.classes)
+  clust.probs <- make.class.probs(curr.data, clust.labels)
+  return(mean(mutual.info(clust.probs)))
 }
 
 # RELATIVE ENTROPY MATRIX
@@ -33,23 +41,41 @@ cluster.mutual.info <- function(curr.data, num.classes) {
 # or, in this case,
 # D_JS[p(r|i,s_k)||p(r|j,s_k)] = log2(p(1|i,s_k)/p(1|j,s_k))p(1|i,s_k) + log2(p(0|i,s_k)/p(0|j,s_k)p(0|i,s_k)
 # = log2(p(1|i,s_k)/p(1|j,s_k))p(1|i,s_k) + log2(1-p(1|i,s_k)/(1-p(1|j,s_k)))(1-p(1|i,s_k))
-make.D <- function(probs) {
+make.D <- function(probs, binom=T) {
     D <- matrix(0, nrow=nrow(probs), ncol=nrow(probs))
     for (i in 1:nrow(D)) {
         for (j in 1:nrow(D)) {
-            D[i,j] <- mean(log2(probs[i,]/probs[j,])*probs[i,] + log2((1-probs[i,])/(1-probs[j,]))*(1-probs[i,]))
+          if (binom) {
+            D[i,j] <- mean(relative.entropy.binom(probs[i,], probs[j,]))
+          } else {
+            D[i,j] <- relative.entropy.multi(probs[i,], probs[j,])
+          }
         }
     }
     return(D)
 }
 
+relative.entropy.binom <- function(p,q) {
+  return(log2(p/q)*p + log2((1-p)/(1-q))*(1-p))
+}
+
+# compute relative entropy
+relative.entropy.multi <- function(p,q) {
+  return(sum(log2(p/q)*p))
+}
+  
 # BINOMIAL ENTROPY
 entropy.binom <- function(p) {
     return(- p*log2(p) - (1-p)*log2(1-p))
 }
 
+# Entropy for multinomial dist
+entropy.multi <- function(p) {
+  return(- sum(p * log(p)))
+}
 
 # Beginning of a mutual-information based clustering algorithm...
+# doesn't work right now
 # takes in bin.mat
 # ALGORITHM:
 # compute probs for all cells

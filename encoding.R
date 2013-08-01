@@ -21,7 +21,7 @@ binarize.trials <- function(mat, labels, blank.names = c("OilBl", "WatBl")) {
 
 # Given a binary response matrix, compute response bernoulli probabilities
 # Allows for prior alpha for smoothing
-make.trial.probs <- function(bin.mat, num.reps=4, alpha=0.1) {
+make.trial.probs.binom <- function(bin.mat, num.reps=4, alpha=0.1) {
   # assumes 4 trials per odor
   if (is.null(dim(bin.mat))) {
     probs <- rep(0, length(bin.mat)/num.reps)
@@ -37,6 +37,31 @@ make.trial.probs <- function(bin.mat, num.reps=4, alpha=0.1) {
       for (j in unique(colnames(bin.mat))) {
         curr.cols <- colnames(bin.mat) %in% j
         probs[i,j] <- (sum(bin.mat[i,curr.cols])+alpha)/(num.reps+2*alpha)
+      }
+    }
+  }
+  return(probs)
+}
+
+
+# Given a binary response matrix, compute response multinomial probabilities
+# Allows for prior alpha for smoothing
+make.trial.probs.multi <- function(bin.mat, num.reps=4, alpha=0.1) {
+  # assumes 4 trials per odor
+  if (is.null(dim(bin.mat))) {
+    probs <- rep(0, length(bin.mat)/num.reps)
+    names(probs) <- unique(names(bin.mat))
+    for (i in unique(names(bin.mat))) {
+      curr.cols <- names(bin.mat) %in% i
+      #probs[i] <- (sum(bin.mat[curr.cols])+alpha)/(num.reps+2*alpha)
+    }
+  } else {
+    probs <- matrix(0, nrow=nrow(bin.mat), ncol=ncol(bin.mat)/num.reps)
+    colnames(probs) <- unique(colnames(bin.mat))
+    for (i in 1:nrow(bin.mat)) {
+      for (j in unique(colnames(bin.mat))) {
+        curr.cols <- colnames(bin.mat) %in% j
+       # probs[i,j] <- (sum(bin.mat[i,curr.cols])+alpha)/(num.reps+2*alpha)
       }
     }
   }

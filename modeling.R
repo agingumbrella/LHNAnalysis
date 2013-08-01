@@ -16,30 +16,51 @@ add.noise <- function(x, delta=10, alpha=0.025) {
   return(apply(x, 2, function(x) { x + delta*tanh(alpha*x)*rnorm(length(x)) }))
 }
 
-make.model.responses <- function(pn, group, N=100, single.cell=F, method="lda") {  
-  if (method == "lda") {
-    weights <- lda(t(pn), factor(group))$scaling
-  } else if (method == "logreg") {
-    weights <- glm.fit(t(pn), factor(group), family=binomial())$coefficients
-  } else if (method == "nonneg") {
-    coef <- coefficients(penalized(factor(group), t(pn), positive=TRUE))   
-    nonneg.weights <- coef[2:length(coef)]
-    weights <- rep(0, nrow(pn))
-    names(weights) <- rownames(pn)
-    weights[names(nonneg.weights)] <- nonneg.weights
+fisher.lda <- function(data, groups) {
+  classes <- unique(groups)
+  if (length(classes) > 2) stop("Can't have more than 2 classes.")
+  g1 <- data[groups == classes[1],]
+  g2 <- data[groups == classes[2],]
+  m1 <- unlist(apply(g1, 2, mean))
+  m2 <- unlist(apply(g2, 2, mean))
+  Sw <- matrix(0, nrow=length(m1), ncol=length(m1))
+  for (i in 1:length(groups)) {
+    if (groups[i] == classes[1]) {
+      Sw <- Sw + (pn[i,] - m1)%*%t(pn[i,] - m1)
+    } else {
+      Sw <- Sw + (pn[i,] - m2)%*%t(pn[i,] - m2)
+    }      
   }
+  w <- solve(Sw)%*%(m2 - m1)
+  return(w)
+}
+
+make.model.responses <- function(pn, group, N=100, single.cell=F, method="lda") {  
+#  if (method == "lda") {
+#    weights <- lda(t(pn), factor(group))$scaling
+#  } else if (method == "flda") {
+    weights <- fisher.lda(pn, group)
+ # } else if (method == "logreg") {
+#    weights <- glm.fit(t(pn), factor(group), family=binomial())$coefficients
+#  } else if (method == "nonneg") {
+ #   coef <- coefficients(penalized(factor(group), t(pn), positive=TRUE))   
+#    nonneg.weights <- coef[2:length(coef)]
+#    weights <- rep(0, nrow(pn))
+#    names(weights) <- rownames(pn)
+#    weights[names(nonneg.weights)] <- nonneg.weights
+ ### }
   yes <- c()
   no <- c()
   for (i in 1:N) {
     curr.pn <- add.noise(pn)
     if (single.cell) {
-      total.input <- curr.pn[, 1:ncol(pn) %in% group]
+      total.input <- curr.pn[1:nrow(pn) %in% group,]
       yes <- c(yes, (total.input %*% weights)/mean(total.input))
-      other.input <- curr.pn[, !(1:ncol(pn) %in% group)]
-      no <- c(no, unlist(apply(curr.pn[, !(1:ncol(pn) %in% group)], 2, function(x) { (x %*% weights)/mean(x)})))
+      other.input <- curr.pn[!(1:nrow(pn) %in% group),]
+      no <- c(no, unlist(apply(curr.pn[!(1:nrow(pn) %in% group),], 1, function(x) { (x %*% weights)/mean(x)})))
     } else {
-      yes <- c(yes, unlist(apply(curr.pn[, as.logical(group)], 2, function(x) { (x %*% weights)/mean(x)})))
-      no <- c(no, unlist(apply(curr.pn[, !as.logical(group)], 2, function(x) { (x %*% weights)/mean(x)})))
+      yes <- c(yes, unlist(apply(curr.pn[as.logical(group),], 1, function(x) { (x %*% weights)/mean(x)})))
+      no <- c(no, unlist(apply(curr.pn[!as.logical(group),], 1, function(x) { (x %*% weights)/mean(x)})))
     }
   }
   return(list(yes=yes, no=no))
@@ -85,4 +106,18 @@ make.lda.response.prob <- function(pn, group, N=1000) {
     }
   }
   return(apply(mat, 2, mean))
+}
+
+
+## attempt to set weights of model PNs using correlations with LHNs
+model.lhn.by.correlation <- function(pn.lhn.corr, pn.common, thresh=0.3) {
+  models <- matrix(0, ncol=ncol(pn.lhn.corr), nrow=nrow(pn.common))
+  for (i in 1:nrow(pn.common)) {
+    for (j in 1:ncol(pn.lhn.corr)) {
+      high.corr <- pn.lhn.corr[,j] > thresh
+     # response for each odor as w . x      
+      models[i,j] <- pn.lhn.corr[high.corr,j] %*% pn.common[i, high.corr]
+    }
+  }
+  return(models)
 }
