@@ -71,7 +71,7 @@ cluster.purity <- function(clusters, classes) {
 # using correlation scores -- same as matrix in other figures
 orn.clust <- hclust(as.dist(1-cor(t(orn))), method='ward')
 pn.clust <- hclust(as.dist(1-cor(t(pn))), method='ward')
-lhn.clust <- hclust(as.dist(1-cor(t(lhn[!(rownames(rates.nona.mat) %in% c("OilBl", "WatBl")),]))), method='ward')
+lhn.clust <- hclust(as.dist(1-cor(t(lhn[!(rownames(lhn) %in% c("OilBl", "WatBl")),]))), method='ward')
 
 # make and color the dendrograms for each cell class
 orn.den <- dendrapply(as.dendrogram(orn.clust), color.leaves.all)
@@ -129,8 +129,8 @@ lhn.cell.labels <- cutree(lhn.cells.clust, length(unique(cross.ids)))
 lhn.cell.den <- dendrapply(as.dendrogram(lhn.cells.clust), color.leaves.lhn.cell)
 
 # plot dendrogram clustering of cells, with cross ID indicated by color
-pdf("cell_cluster_res.pdf", height=4, width=8.5)
-par(oma = c(0, 0, 0, 0))
+pdf("figs/cell_cluster_res.pdf", height=8.5, width=3, pointsize=10)
+par(oma = c(0, 0, 0, 0), mar=c(3,1,1,6))
 plot(lhn.cell.den, horiz=T, main="LHN", center=T)
 legend("topleft", legend=names(cross.colors), fill=unlist(cross.colors), border=unlist(cross.colors), bty='n', cex=0.5)
 dev.off()
@@ -138,4 +138,6 @@ dev.off()
 # compute per cross purity score
 lhn.cell.purity <- per.class.purity(lhn.cell.labels, colnames(lhn))
 names(lhn.cell.purity) <- unique(colnames(lhn))
-barplot(lhn.cell.purity, col=cross.colors, las=3, ylab="Purity (%)")
+pdf("figs/lhn_cell_purity.pdf", width=4, height=4, pointsize=10)
+barplot(lhn.cell.purity, col=cross.colors, las=3, ylab="Purity (%)", main='LHN Line Type Purity Scores')
+dev.off()

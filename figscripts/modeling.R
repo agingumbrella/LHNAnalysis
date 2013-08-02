@@ -51,7 +51,7 @@ make.odor.type.label <- function(pn, types, curr.type) {
   sulfur <- make.odor.type.label(pn, odor.types, "sulfur")
 
 # TODO Make this work...
-pdf("modeled_responses.pdf")
+pdf("figs/modeled_responses.pdf")
 par(mfrow=c(3,3))
 plot.model.response.hist(make.model.responses(pn, terpenes, 100), x.min=-0.005, x.max=0.01, ymax=700, title='Terpene')
 plot.model.response.hist(make.model.responses(pn, aldehydes, 100), x.min=-0.005, x.max=0.01, ymax=1000, title='Aldehyde')

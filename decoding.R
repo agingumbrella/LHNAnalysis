@@ -46,7 +46,6 @@ classify.naive.binom <- function(train, test) {
     return(labels)
 }
 
-
 # train on 3 examples for each cell and test on last
 make.trial.rates <- function(mat) {
     # assumes 3 trials per odor in training set

@@ -23,11 +23,10 @@ bin.rev.colors <- colorRampPalette(c('black', 'white'))(100)
 # load spike summaries
 load("spikeT_summer.rda")
 
-# save the Igor names of each of the LHN cells
-lhn.cell.names <- names(SpikesT)
   
 ################################################################################
 ## load cell info from database
+
 physplit=read.table("PhySplitSimple.mer",sep=',',header=TRUE,stringsAsFactors=FALSE)
 
 # find cross ids for each cell
@@ -79,7 +78,7 @@ total.trials <- sum(unlist(sapply(SpikesT, function(x) {sapply(x, length)})))
 total.usable <- length(SpikesT)*36*4 # assuming 36 odors and 4 repeats per odor
 
 # make matrix of all usable trials
-lhn.mat <- make.total.data.matrix(SpikesT, length(mean.rates), 36*4)
+lhn.mat <- make.total.data.matrix(SpikesT, length(lhn.mean.rates), 36*4)
 # assign lhn.mat to be crosses rather than cell names
 rownames(lhn.mat) <- cross.ids #names(SpikesT)
 
@@ -89,14 +88,23 @@ lhn.labels <- factor(colnames(lhn.mat))
 lhn.bin <- binarize.mat.per.cell(lhn.mat, lhn.labels)
 
 # make per cell average firing rates
-rates.mat <- make.rate.per.cell(mean.rates, goododors)
-colnames(rates.mat) <- cross.ids
+lhn.rates.mat <- make.rate.per.cell(lhn.mean.rates, goododors)
 
 # make matrix of rates without NAs
-rates.nona.mat <- rates.mat[,apply(rates.mat, 2, function(y) !any(is.na(y)))]
+lhn.rates.nona.mat <- lhn.rates.mat[,apply(lhn.rates.mat, 2, function(y) !any(is.na(y)))]
+
+# save the Igor names of each of the LHN cells
+lhn.cell.names <- colnames(lhn.rates.nona.mat)
 
 # finally, lhn is all the average firing rates without any NAs for just the odors that are common to all trials
-lhn <- rates.nona.mat
+lhn <- lhn.rates.nona.mat
+
+# replace colnames with cross ids
+colnames(lhn) <- cross.ids[apply(lhn.rates.mat, 2, function(y) !any(is.na(y)))]
+
+# make matrix of delta firing rates from blank (without blanks)
+lhn.spontaneous.rates <- apply(lhn[rownames(lhn) %in% c("OilBl","WatBl"), ], 2, mean)
+lhn.delta.rates <- lhn[!(rownames(lhn) %in% c("OilBl", "WatBl")),] - rep.row(lhn.spontaneous.rates, nrow(lhn[!(rownames(lhn) %in% c("OilBl", "WatBl")),]))
 
 ################################################################################
 ## Load Hallem and Carlson data
@@ -142,12 +150,21 @@ lhn.common <- lhn[rownames(lhn) %in% unlist(names(common.odors)),]
 
 # get list of traced neurons
 traced <- dir("~/Documents/Neuroscience/jefferis_lab/LHNAnalysis/Tracing.IS2/", full.name=T)
-#neurons <- as.neuronlist(lapply(traced, function(x) read.neuron(x)))
+neurons <- as.neuronlist(lapply(traced, function(x) read.neuron(x)))
 #neuron.dists <- matrix(0, nrow=length(neurons), ncol=length(neurons))
+
+# TODO Include code for distance measurements
 
 # load precomputed distance matrix m
 load("~/Documents/Neuroscience/jefferis_lab/LHNAnalysis/dists15.Rdata")
 lhn.anatomy.dists <- m
 
+# corresponding cells to the anatomical structures3
+# had to do by hand b/c use different naming formats -- traced file name includes both date and cross id
+# and because the names of the files included date strings and didn't exactly match the cross IDs in the ephys data...
+traced.info <- read.table("tracedinfo.txt", header=T)
 
+rownames(lhn.anatomy.dists) <- colnames(lhn.anatomy.dists) <- traced.info$Cross
+
+num.anatomy.cross.ids <- length(unique(rownames(lhn.anatomy.dists)))
 

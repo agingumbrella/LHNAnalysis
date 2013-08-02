@@ -12,8 +12,9 @@ lhn.val <- cor(lhn.common, val.common)
 # Or65a is highly correlated with valence (.321 in ORN, .45 in PN)
 # also Or33b
 # Or65a is thought to mediate aggression
-pdf("valence_corr.pdf")
+pdf("figs/valence_corr.pdf", height=3, width=8.5)
 par(mfrow=c(1,3))
 hist(orn.val, main="ORN vs valence", xlab="Correlation Coefficient", xlim=c(-1,1), col='darkgreen')
 hist(pn.val, main="PN vs valence", xlab="Correlation Coefficient", xlim=c(-1,1), col='blue')
 hist(lhn.val, main="LHN vs valence", xlab="Correlation Coefficient", xlim=c(-1,1), col='purple')
+dev.off()
