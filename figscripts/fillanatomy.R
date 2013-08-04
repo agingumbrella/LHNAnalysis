@@ -54,3 +54,4 @@ heatmap.2(cor(lhn.cell.dists, lhn.anatomy.dists), symm=T, trace='none', scale='n
 #require(iCluster)
 #joint.cluster <- iCluster(list(cells=t(lhn), anatomy=lhn.anatomy.dists), 10, lambda=c(0.2,0.2))
 
+
