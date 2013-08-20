@@ -33,6 +33,9 @@ physplit=read.table("PhySplitSimple.mer",sep=',',header=TRUE,stringsAsFactors=FA
 cross.idx <- sapply(names(SpikesT), function(x) grep(x, physplit$Igor.file))
 cross.ids <- filter.cross.ids(sapply(cross.idx, function(x) physplit$cross[x]))
 
+# hack to fix a mislabeled cluster
+cross.ids[cross.ids %in% "JKSF274−JK671"] <- "SF274−JK671"
+
 ################################################################################
 ## Save colors used throughout analysis for crosses and odor types
 
@@ -42,7 +45,7 @@ type.colors <- c(amine="gold", lactone="darkblue", acid="pink", sulfur="black", 
 
 # color for each cross id
 #cross.colors <- colorRampPalette(c("cyan", "magenta", "yellow", "black"))(length(unique(cross.ids)))
-cross.colors <- rainbow(length(unique(cross.ids)))
+cross.colors <- colorRampPalette(c('purple','blue','cyan','green','yellow','red'))(length(unique(cross.ids)))
 names(cross.colors) <- unique(cross.ids)
 
 ################################################################################
@@ -79,19 +82,27 @@ total.usable <- length(SpikesT)*36*4 # assuming 36 odors and 4 repeats per odor
 
 # make matrix of all usable trials
 lhn.mat <- make.total.data.matrix(SpikesT, length(lhn.mean.rates), 36*4)
+
 # assign lhn.mat to be crosses rather than cell names
 rownames(lhn.mat) <- cross.ids #names(SpikesT)
 
 # get labels of each odor
 lhn.labels <- factor(colnames(lhn.mat))
-# make matrix for each cell of whether fired or not in response to an odor, using a statistical test
-lhn.bin <- binarize.mat.per.cell(lhn.mat, lhn.labels)
 
 # make per cell average firing rates
 lhn.rates.mat <- make.rate.per.cell(lhn.mean.rates, goododors)
 
+# find ones without NAs
+cells.without.na <- apply(lhn.rates.mat, 2, function(y) !any(is.na(y)))
+
 # make matrix of rates without NAs
-lhn.rates.nona.mat <- lhn.rates.mat[,apply(lhn.rates.mat, 2, function(y) !any(is.na(y)))]
+lhn.rates.nona.mat <- lhn.rates.mat[,cells.without.na]
+
+# remove NAs from lhn.mat
+lhn.mat <- lhn.mat[cells.without.na,]
+
+# make matrix for each cell of whether fired or not in response to an odor, using a statistical test
+lhn.bin <- binarize.mat.per.cell(lhn.mat, lhn.labels)
 
 # save the Igor names of each of the LHN cells
 lhn.cell.names <- colnames(lhn.rates.nona.mat)
@@ -168,3 +179,6 @@ rownames(lhn.anatomy.dists) <- colnames(lhn.anatomy.dists) <- traced.info$Cross
 
 num.anatomy.cross.ids <- length(unique(rownames(lhn.anatomy.dists)))
 
+################################################################################
+## Compute average values for comparison with 2P imaging
+                              

@@ -25,12 +25,12 @@ pn.factors <- prcomp(t(pn))$x
 pn.cor.clust <- hclust(as.dist(1-cor(pn)))
 num.pn.clusts <- 12
 pn.factor.labels <- cutree(pn.cor.clust, num.pn.clusts)
-par(mfrow=c(3,4))
-for (i in 1:num.pn.clusts) {
-    curr <- ifelse(pn.factor.labels == i, 1, 0)
+#par(mfrow=c(3,4))
+#for (i in 1:num.pn.clusts) {
+#    curr <- ifelse(pn.factor.labels == i, 1, 0)
 #    g <- lda(t(pn), factor(curr))
-    plot.model.response.hist(make.model.responses(pn, curr, 100, TRUE, method="lda"), 30, title=paste("Cluster", i))
-}
+#    plot.model.response.hist(make.model.responses(pn, curr, 100, TRUE, method="lda"), 30, title=paste("Cluster", i))
+#}
 
 ### Do just for different odor categories
 make.odor.type.label <- function(pn, types, curr.type) {
@@ -53,7 +53,6 @@ make.odor.type.label <- function(pn, types, curr.type) {
 # TODO Make this work...
 pdf("figs/modeled_responses.pdf")
 par(mfrow=c(3,3))
-plot.model.response.hist(make.model.responses(pn, terpenes, 100), x.min=-0.005, x.max=0.01, ymax=700, title='Terpene')
 plot.model.response.hist(make.model.responses(pn, aldehydes, 100), x.min=-0.005, x.max=0.01, ymax=1000, title='Aldehyde')
 plot.model.response.hist(make.model.responses(pn, acid, 100), x.min=-0.01, x.max=0.005, ymax=800, title='Acid')
 legend("topright", legend=c("Targeted Odors", "Other Odors"), fill=c("red","blue"), border=c("red","blue"), bty='n', cex=0.5, title="Total Input to Model LHN")
@@ -65,6 +64,23 @@ plot.model.response.hist(make.model.responses(pn, lactone, 100), x.min=-0.005, x
 plot.model.response.hist(make.model.responses(pn, sulfur, 100), x.min=-0.005, x.max=0.006, ymax=1000, title='Sulfur')
 dev.off()
 
-                                        #plot(prcomp(lhn.common)$x[,1:2],xlim=c(-80,80),ylim=c(-80,80),col='magenta')
+pdf("figs/modeled_terpene.pdf",width=4,height=4)
+plot.model.response.hist(make.model.responses(pn, terpenes, 1000), x.min=-0.1, x.max=0.4, ymax=15, title='Terpene')
+legend("topright", legend=c("Terpenes", "Other Odorants"), border='white', fill=c('red', 'blue'), col=c('red','blue'), box.col='white')
+#plot(prcomp(lhn.common)$x[,1:2],xlim=c(-80,80),ylim=c(-80,80),col='magenta')
 #par(new=T)
 #plot(prcomp(pn.common)$x[,1:2],xlim=c(-80,80),ylim=c(-80,80),col='cyan')
+
+groups <- list(terpenes, aldehydes, acid, alcohol, ester, aromatic, ketone, lactone, sulfur)
+ldas <- lapply(groups, function(x) fisher.lda(pn, x))
+weights <- lapply(ldas, function(x) x$w)
+names(weights) <- c("terpene", "amine", "acid", "alcohol", "ester", "aromatic" ,"ketone", "lactone", "sulfur")
+thresh <- lapply(ldas, function(x) as.vector(t(x$w) %*% (x$m1 +x$m2)/2))
+names(thresh) <- names(weights)
+classifications = classify.all(pn, groups, weights, thresh)
+rownames(classifications) <- names(weights)
+colnames(classifications) <- names(weights)
+pdf("figs/confusion.pdf", width=4, height=4)
+heatmap.2(classifications, Colv=NA, Rowv=NA, scale='n', col=jet.colors, trace='n', main='Response Probability', sepwidth=c(0,0), density.info='none', dendrogram='none', lmat=rbind( c(0, 3), c(2,1), c(0,4) ), lwid=c(1, 4), lhei=c(1, 4, 1 ))
+dev.off()
+barplot(diag(classifications), main='Prediction Accuracy')

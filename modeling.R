@@ -32,14 +32,14 @@ fisher.lda <- function(data, groups) {
     }      
   }
   w <- solve(Sw)%*%(m2 - m1)
-  return(w)
+  return(list(w=w, m1=m1, m2=m2))
 }
 
 make.model.responses <- function(pn, group, N=100, single.cell=F, method="lda") {  
 #  if (method == "lda") {
 #    weights <- lda(t(pn), factor(group))$scaling
 #  } else if (method == "flda") {
-    weights <- fisher.lda(pn, group)
+    weights <- fisher.lda(pn, group)$w
  # } else if (method == "logreg") {
 #    weights <- glm.fit(t(pn), factor(group), family=binomial())$coefficients
 #  } else if (method == "nonneg") {
@@ -57,14 +57,78 @@ make.model.responses <- function(pn, group, N=100, single.cell=F, method="lda") 
       total.input <- curr.pn[1:nrow(pn) %in% group,]
       yes <- c(yes, (total.input %*% weights)/mean(total.input))
       other.input <- curr.pn[!(1:nrow(pn) %in% group),]
-      no <- c(no, unlist(apply(curr.pn[!(1:nrow(pn) %in% group),], 1, function(x) { (x %*% weights)/mean(x)})))
+      no <- c(no, unlist(apply(curr.pn[!(1:nrow(pn) %in% group),], 1, function(x) { (x %*% weights)})))
     } else {
-      yes <- c(yes, unlist(apply(curr.pn[as.logical(group),], 1, function(x) { (x %*% weights)/mean(x)})))
-      no <- c(no, unlist(apply(curr.pn[!as.logical(group),], 1, function(x) { (x %*% weights)/mean(x)})))
+      yes <- c(yes, unlist(apply(curr.pn[as.logical(group),], 1, function(x) { (x %*% weights)})))
+      no <- c(no, unlist(apply(curr.pn[!as.logical(group),], 1, function(x) { (x %*% weights)})))
     }
   }
   return(list(yes=yes, no=no))
 }
+ 
+# finds threshold from responses
+find.threshold <- function(weights, m0, m1) {
+  yes.hist <- hist(responses$yes)
+  no.hist <- hist(responses$no)
+  y <- yes.hist$mids[which.max(yes.hist$density)]
+  n <- no.hist$mids[which.max(no.hist$density)]
+  if (y > n) {
+    return((y-n)/2)
+  } else {
+    return((n-y)/2)
+  }  
+}
+
+classify.thresh <- function(input, thresh) {
+  if (input > thresh) {
+    return(1)
+  } else {
+    return(0)
+  }
+}
+
+
+classify.yesno <- function(pn, groups, weights, thresh, N=100) {
+  m <- matrix(0, nrow=length(groups), ncol=length(groups))
+  for (i in 1:length(groups)) {
+    print(i)
+    for (j in 1:length(groups)) {
+      total <- 0
+      for (k in 1:N) {
+        curr.pn <- add.noise(pn)
+        curr.yes <- unlist(apply(curr.pn[as.logical(groups[[j]]),], 1, function(x) { (x %*% weights[[i]])/mean(x)}))
+        m[i,j] <- m[i,j] + sum(curr.input > thresh[[i]])
+        total <- total + length(curr.input)
+      }
+      m[i,j] <- m[i,j] / total
+    }
+  }
+  return(m)
+}
+ 
+classify.all <- function(pn, groups, weights, thresh, N=100) {
+  m <- matrix(0, nrow=length(groups), ncol=length(groups))
+  for (i in 1:length(groups)) {
+    print(i)
+    for (j in 1:length(groups)) {
+      total <- 0
+      for (k in 1:N) {
+        curr.pn <- add.noise(pn)
+        curr.input <- unlist(apply(curr.pn[as.logical(groups[[j]]),], 1, function(x) { (x %*% weights[[i]])}))
+        if (names(weights)[i] != "acid") {
+          m[i,j] <- m[i,j] + sum(curr.input > thresh[[i]])
+        } else {
+          m[i,j] <- m[i,j] + sum(curr.input < thresh[[i]])
+        }
+        total <- total + length(curr.input)
+      }
+      m[i,j] <- m[i,j] / total
+    }
+  }
+  return(m)
+}
+
+
 
 plot.discriminability <- function(pn, N=20) {
   x <- c()

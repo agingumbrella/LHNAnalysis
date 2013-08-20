@@ -7,33 +7,37 @@
 
 # Function takes probs matrix where rows are cells and columns are stimuli
 # returns vector of mutual information between response and stimuli
-mutual.info <- function(probs, binom=T) {
+mutual.info <- function(probs) {
     I <- c()
     p.rs <- apply(probs, 2, mean)
     for (i in 1:ncol(probs)) {
-      if (binom) {
-        I <- c(I, mean(probs[,i]*log2(probs[,i]/p.rs[i])+(1-probs[,i])*log2((1-probs[,i])/(1-p.rs[i]))))
-      } else {
-        # do nothing
-      }
+      I <- c(I, mean(probs[,i]*log2(probs[,i]/p.rs[i])+(1-probs[,i])*log2((1-probs[,i])/(1-p.rs[i]))))
     }
     return(I)
 }
 
 # cluster using relative entropy (an approximation to clustering using mutual info)
-cluster.mutual.info <- function(curr.data, num.classes, binom=T) {
+cluster.mutual.info <- function(curr.data, num.classes) {
   print(num.classes)
-  if (binom) {
-    train <- make.trial.probs.binom(curr.data, 4)
-  } else {
-    train <- make.trial.probs.multi(curr.data, 4)
-  }
-  D <- make.D(train, binom)
+  train <- make.trial.probs(bin2data.frame(curr.data))
+  D <- make.D(train)
   clust <- hclust(as.dist(D))
   clust.labels <- cutree(clust, k=num.classes)
   clust.probs <- make.class.probs(curr.data, clust.labels)
   return(mean(mutual.info(clust.probs)))
 }
+
+# average entropy per cluster
+cluster.avg.entropy <- function(curr.data, num.classes) {
+  print(num.classes)
+  train <- make.trial.probs(bin2data.frame(curr.data))
+  D <- make.D(train)
+  clust <- hclust(as.dist(D))
+  clust.labels <- cutree(clust, k=num.classes)
+  clust.probs <- make.class.probs(curr.data, clust.labels)
+  return(mean(sapply(apply(clust.probs, 1, entropy.binom),mean)))
+}
+
 
 # RELATIVE ENTROPY MATRIX
 # Compute D_ij = <D_JS[p(r|i,s)||p(r|j,s)]>_s = 1/K \sum_k D_JS[p(r|i,s_k)||p(r|j,s_k)]

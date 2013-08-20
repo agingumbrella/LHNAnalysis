@@ -1,5 +1,170 @@
 source("encoding.R")
 
+require(mvtnorm)
+
+# stuff for gaussian
+
+# classify a single odor
+classify.odor.gauss <- function(z, model) {
+  # length of models is number of possible labels
+  logliks <- c()
+  for (i in 1:length(model)) {
+     logliks <- c(logliks, dmvnorm(z, mean=model[[i]]$mu, sigma=model[[i]]$sigma, log=TRUE)[1])
+  }
+  return(which.max(logliks))
+}
+
+ classify.all.odors.gauss <- function(z, model) {
+  preds <- c()
+  for (i in 1:ncol(z)) {
+    preds <- c(preds, classify.odor.gauss(z[,i], model))
+  }
+  names(preds) <- names(model)[preds]
+  return(preds)
+}
+
+classify.single.neurons.gauss <- function(z, model) {
+  preds <- c()
+  for (i in 1:length(model)) {
+    preds <- rbind(preds, dnorm(z, model[[i]]$mu, diag(model[[i]]$sigma), log=TRUE))
+  }
+  return(apply(preds, 2, which.max))
+}
+
+cross.validate.single.neurons <- function(mat, clust, num.classes, num.reps=4, do.type=F) {
+
+  pred.labels <-rep(0, num.classes)
+  curr.types <- factor(lhn.types$Type)
+  idx <- as.integer(unique(curr.types))
+  for (i in 0:(num.reps-1)) {
+    leave.out <- seq(1, ncol(mat), num.reps)+i
+    train.data <- mat[,!(1:ncol(mat) %in% leave.out)]
+    test.data <- mat[,leave.out]
+    clust.labels <- cutree(clust, k=num.classes)
+
+    train <- avg.by.cluster(train.data, clust.labels)
+    test <- avg.by.cluster(test.data, clust.labels)
+    if (do.type) {
+      model <- indep.gauss.model.type(train, lhn.types)
+    } else {
+      model <- indep.gauss.model.all(train)
+    }
+    if (do.type) {
+      for (j in 1:ncol(test)) {
+        pred.labels <- pred.labels + as.integer(classify.single.neurons.gauss(test[,j], model) == as.integer(lhn.types[j,]$Type))
+      }
+    } else {
+      for (j in 1:ncol(test)) {
+        pred.labels <- pred.labels + as.integer(classify.single.neurons.gauss(test[,j], model) == j)
+      }
+    }
+  }
+  return(pred.labels/ncol(mat))
+}
+
+
+
+cross.validate.gauss <- function(mat, clust, num.classes, indep=T, num.reps=4, do.type=F) {
+  accuracy <- c()
+  curr.types <- factor(lhn.types$Type)
+  for (i in 0:(num.reps-1)) {
+    leave.out <- seq(1, ncol(mat), num.reps)+i
+    train.data <- mat[,!(1:ncol(mat) %in% leave.out)]
+    test.data <- mat[,leave.out]
+    clust.labels <- cutree(clust, k=num.classes)
+    train <- avg.by.cluster(train.data, clust.labels)
+    test <- avg.by.cluster(test.data, clust.labels)    
+    if (indep) {
+      if (do.type) {
+        model <- indep.gauss.model.type(train, lhn.types)
+      } else {
+        model <- indep.gauss.model.all(train)
+      }
+    } else {
+      if (do.type) {
+        model <- dep.gauss.model.type(train, lhn.types)
+      } else {
+        model <- dep.gauss.model.all(train)
+      }
+    }
+    pred.labels <- classify.all.odors.gauss(test, model)
+    if (do.type) {
+      accuracy <- c(accuracy, sum(names(pred.labels) == curr.types)/length(curr.types))
+    } else {
+      accuracy <- c(accuracy, sum(pred.labels == 1:ncol(test.data))/ncol(test.data))
+    }
+  }
+  return(mean(accuracy))
+}
+
+
+pred.from.sample <- function(mat, indep=T,num.reps=10) {
+  accs <- c()
+  for (i in 10:15) {
+    print(i)
+    curr.accs <- c()
+    for (j in 1:10) {
+      curr.accs <- c(curr.accs, cross.validate.gauss(mat[sample(1:nrow(mat),i),], indep=indep))
+    }
+    accs <- c(accs, mean(curr.accs))
+  }
+  return(accs)
+}
+        
+ # stuff for LDA
+average.rates <- function(m, row.labels) {
+  out <- matrix(0, nrow=length(unique(row.labels)), ncol=ncol(m))
+  colnames(out) <- colnames(m)
+  all.row.labels <- unique(row.labels)
+  for (i in 1:length(all.row.labels)) {
+    if (sum(row.labels == all.row.labels[i]) > 1) {
+      out[i,] <- apply(m[row.labels == all.row.labels[i],], 2, mean)
+    } else {
+      out[i,] <- sapply(m[row.labels == all.row.labels[i],], mean)
+    }
+  }
+  return(out)
+}
+
+cross.validate.odors.lda <- function(mat, num.classes, num.reps=4, num.odors=32) {
+  accuracy <- c()
+  print(num.classes)
+  for (i in 0:(num.reps-1)) {
+    leave.out <- seq(1, ncol(mat), num.reps)+i
+    train <- mat[,!(1:ncol(mat) %in% leave.out)]
+    test <- mat[,leave.out]
+    if (num.classes < nrow(train)) {
+      clust.labels <- cutree(hclust(dist(train)), k=num.classes)
+      train <- average.rates(train, clust.labels)
+      test <- average.rates(test, clust.labels)
+    }        
+    model <- lda(t(train), colnames(train), method="mle")
+    pred.labels <- predict(model, t(test))
+    accuracy <- c(accuracy, sum(pred.labels$class == colnames(test))/ncol(test))
+  }
+  return(accuracy)
+}
+
+cross.validate.types.lda <- function(mat, num.classes, odor.types, num.reps=4, num.odors=32) {
+  accuracy <- c()
+  print(num.classes)
+  colnames(mat) <- rep(odor.types, each=num.reps)
+  for (i in 0:(num.reps-1)) {    
+    leave.out <- seq(1, ncol(mat), num.reps)+i
+    train <- mat[,!(1:ncol(mat) %in% leave.out)]
+    test <- mat[,leave.out]
+    if (num.classes < nrow(train)) {
+      clust.labels <- cutree(hclust(dist(train)), k=num.classes)
+      train <- average.rates(train, clust.labels)
+      test <- average.rates(test, clust.labels)
+    }        
+    model <- lda(t(train), colnames(train), method="mle")
+    pred.labels <- predict(model, t(test))
+    accuracy <- c(accuracy, sum(pred.labels$class == colnames(test))/ncol(test))
+  }
+  return(accuracy)
+}
+
 confusion.matrix <- function(res) {
 
 }
@@ -20,6 +185,7 @@ classify.naive.poisson <- function(train, test) {
             label.probs[i,j] <- sum(log(ppois(test[,i], train[,j])))
         }                                
     }
+    test <- test[,unique(colnames(train))]
     labels <- apply(label.probs, 1, which.max)
     return(labels)
 }
@@ -32,7 +198,7 @@ classify.naive.binom <- function(train, test) {
         label.probs <- matrix(0, nrow=ncol(test), ncol=ncol(test))
     }
     colnames(label.probs) <- colnames(train)
-    rownames(label.probs) <- rownames(train)
+    rownames(label.probs) <- colnames(train)
     for (i in 1:ncol(label.probs)) {
         for (j in 1:ncol(label.probs)) {
             if (is.null(dim(train))) {
@@ -44,6 +210,27 @@ classify.naive.binom <- function(train, test) {
     }
     labels <- apply(label.probs, 1, which.max)
     return(labels)
+}
+
+classify.type.naive.binom <- function(train, test, odor.types) {
+  if (is.null(dim(train))) {
+    label.probs <- matrix(0, nrow=length(train), ncol=length(train))
+  } else {
+    label.probs <- matrix(0, nrow=ncol(train), ncol=ncol(train))
+  }
+  colnames(label.probs) <- colnames(train)
+  rownames(label.probs) <- colnames(train)
+  for (i in 1:ncol(label.probs)) {
+    for (j in 1:ncol(test)) {
+      if (is.null(dim(train))) {
+        label.probs[i,odor.types[j]] <- label.probs[i,odor.types[j]] + log(ifelse(test[i] == 1, train[j], 1-train[j]))
+      } else {
+        label.probs[i,odor.types[j]] <- label.probs[i,odor.types[j]] + sum(log(ifelse(test[,i] == 1, train[,odor.types[j]], 1-train[,odor.types[j]])))
+      }
+    }
+  }
+  labels <- apply(label.probs, 1, which.max)
+  return(labels)
 }
 
 # train on 3 examples for each cell and test on last
@@ -60,36 +247,106 @@ make.trial.rates <- function(mat) {
     return(rates)
 }
 
-cross.validate <- function(mat, num.classes=NA, num.reps=4, num.odors=34) {
+
+cluster.probs <- function(probs, num.classes) {
+  D <- make.D(probs)
+  clust <- hclust(as.dist(D))
+  return(cutree(clust, k=num.classes))
+}
+
+cross.validate.odors <- function(mat, predict.fun, num.classes, num.reps=4, num.odors=34) {
     accuracy <- c()
     print(num.classes)
     for (i in 0:(num.reps-1)) {
-        leave.out <- seq(1, ncol(mat), num.reps)+i
-        curr.data <- mat[,!(1:ncol(mat) %in% leave.out)]
-        if (is.na(num.classes)) {
-            train <- make.trial.probs(curr.data, num.reps-1)
-        } else {
-         train <- make.trial.probs(curr.data, num.reps-1)
-            D <- make.D(train)
-           clust <- hclust(as.dist(D))
-#           clust <- hclust(as.dist(1-cor(t(curr.data))))
-
-            clust.labels <- cutree(clust, k=num.classes)
-            clust.train <- make.class.probs(curr.data, clust.labels, num.reps-1)
-            train <- matrix(0, nrow=nrow(mat), ncol=ncol(mat)/num.reps)
-            # replace the individual probability with the class probability
-            for (k in 1:num.classes) {
-                for (i in which(clust.labels == k)) {
-                    train[i,] <- clust.train[k,]
-                }
-            }
-        }
-        test <- mat[,leave.out]
-        labels <- classify.naive.binom(train, test)
-        accuracy <- c(accuracy, sum(labels == 1:num.odors)/num.odors)
+      leave.out <- seq(1, ncol(mat), num.reps)+i
+      train.data <- mat[,!(1:ncol(mat) %in% leave.out)]
+      test.data <- mat[,leave.out]
+      pred.labels <- predict.fun(train.data, test.data, num.reps, num.classes)
+      accuracy <- c(accuracy, sum(pred.labels == 1:ncol(test.data))/num.odors)      
     }
     return(accuracy)
 }
+
+cross.validate.types <- function(mat, predict.fun, num.classes, odor.types, num.reps=4, num.odors=34) {
+  accuracy <- c()
+  print(num.classes)
+  for (i in 0:(num.reps-1)) {
+    leave.out <- seq(1, ncol(mat), num.reps)+i
+    train.data <- mat[,!(1:ncol(mat) %in% leave.out)]
+    test.data <- mat[,leave.out]
+    pred.labels <- predict.fun(train.data, test.data, num.reps, num.classes, odor.types)
+    accuracy <- c(accuracy, sum(pred.labels == 1:length(odor.types))/num.odors)      
+  }
+  return(accuracy)
+}
+
+
+predict.odor.all <- function(train.data, test.data, num.reps, num.classes) {
+  curr.data <- bin2data.frame(train.data)
+  train <- make.trial.probs(curr.data, num.reps=num.reps-1)          
+  clust.labels <- cluster.probs(train, num.classes)
+  clust.train <- make.trial.probs(curr.data, cell.class.labels=clust.labels, num.reps=num.reps-1)  
+  train <- matrix(0, nrow=nrow(train.data), ncol=ncol(clust.train))
+  colnames(train) <- colnames(clust.train)              
+  # replace the individual probability with the class probability
+  for (k in 1:num.classes) {
+    for (i in which(clust.labels == k)) {
+      train[i,] <- clust.train[k,]
+    }
+  }
+  test.data <- test.data[,colnames(train)]
+  pred.labels <- classify.naive.binom(train, test.data)
+}
+
+predict.odor.exemplar <- function(train.data, test.data, num.reps, num.classes) {
+  curr.data <- bin2data.frame(train.data)
+  train <- make.trial.probs(curr.data, cell.class.labels=clust.labels, num.reps=num.reps-1)
+  clust.labels <- cluster.probs(train, num.classes)
+  train.mi <- mutual.info(t(train)) # note that is transposed to do by cell and not by odor
+  max.mi.idx <- which(train.mi %in% sapply(1:num.classes, function(i) max(train.mi[clust.labels==i])))
+  train <- train[max.mi.idx,]
+  test.data <- test.data[max.mi.idx, colnames(train)]
+  pred.labels <- classify.naive.binom(train, test.data)
+  return(pred.labels)
+}
+ 
+predict.type.all <- function(train.data, test.data, num.reps, num.classes, odor.types) {
+  curr.data <- bin2data.frame(train.data)
+  train <- make.trial.probs(curr.data, num.reps=num.reps-1)          
+  clust.labels <- cluster.probs(train, num.classes)
+  clust.train <- make.trial.probs(curr.data, cell.class.labels=clust.labels, odor.class.labels=odor.types, num.reps=num.reps-1)  
+  train <- matrix(0, nrow=nrow(train.data), ncol=ncol(clust.train))
+  colnames(train) <- colnames(clust.train)              
+  # replace the individual probability with the class probability
+  for (k in 1:num.classes) {
+    for (i in which(clust.labels == k)) {
+      train[i,] <- clust.train[k,]
+    }
+  }
+  pred.labels <- classify.type.naive.binom(train, test.data, odor.types)
+}
+
+
+predict.type.exemplar <- function(train.data, test.data, num.reps, num.classes, odor.types) {
+  curr.data <- bin2data.frame(train.data)
+  train <- make.trial.probs(curr.data, num.reps=num.reps-1)  
+  clust.labels <- cluster.probs(train, num.classes)
+  train.mi <- mutual.info(t(train)) # note that is transposed to do by cell and not by odor
+  max.mi.idx <- which(train.mi %in% sapply(1:num.classes, function(i) max(train.mi[clust.labels==i])))
+  clust.train <- make.trial.probs(curr.data, cell.class.labels=clust.labels, odor.class.labels=odor.types, num.reps=num.reps-1)  
+  train <- matrix(0, nrow=nrow(train.data), ncol=ncol(clust.train))
+  colnames(train) <- colnames(clust.train)              
+  # replace the individual probability with the class probability
+  for (k in 1:num.classes) {
+    for (i in which(clust.labels == k)) {
+      train[i,] <- clust.train[k,]
+    }
+  }
+  train <- train[max.mi.idx,]
+  pred.labels <- classify.type.naive.binom(train, test.data, odor.types)
+  return(pred.labels)
+}
+
 
 # then do allowing pairwise interactions? Maybe unnecessary b/c so accurate
 
@@ -144,3 +401,5 @@ single.neuron.confusion <- function(mat) {
     # create 
    return(confusion)
 }
+
+
