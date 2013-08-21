@@ -4,7 +4,7 @@ require(mvtnorm)
 
 # stuff for gaussian
 
-# classify a single odor
+# classify a single odor using Gaussian model
 classify.odor.gauss <- function(z, model) {
   # length of models is number of possible labels
   logliks <- c()
@@ -14,7 +14,8 @@ classify.odor.gauss <- function(z, model) {
   return(which.max(logliks))
 }
 
- classify.all.odors.gauss <- function(z, model) {
+# classify all odors given a Gaussian model
+classify.all.odors.gauss <- function(z, model) {
   preds <- c()
   for (i in 1:ncol(z)) {
     preds <- c(preds, classify.odor.gauss(z[,i], model))
@@ -23,6 +24,7 @@ classify.odor.gauss <- function(z, model) {
   return(preds)
 }
 
+# classify odors using single neurons and Gaussian model
 classify.single.neurons.gauss <- function(z, model) {
   preds <- c()
   for (i in 1:length(model)) {
@@ -31,8 +33,8 @@ classify.single.neurons.gauss <- function(z, model) {
   return(apply(preds, 2, which.max))
 }
 
+# find cross-validated accuracy for single neuron predictions
 cross.validate.single.neurons <- function(mat, clust, num.classes, num.reps=4, do.type=F) {
-
   pred.labels <-rep(0, num.classes)
   curr.types <- factor(lhn.types$Type)
   idx <- as.integer(unique(curr.types))
@@ -62,8 +64,7 @@ cross.validate.single.neurons <- function(mat, clust, num.classes, num.reps=4, d
   return(pred.labels/ncol(mat))
 }
 
-
-
+# find cross-validated  accuracy for population predictions
 cross.validate.gauss <- function(mat, clust, num.classes, indep=T, num.reps=4, do.type=F) {
   accuracy <- c()
   curr.types <- factor(lhn.types$Type)
@@ -126,6 +127,7 @@ average.rates <- function(m, row.labels) {
   return(out)
 }
 
+# find cross-validated odorant prediction accuracy for population LDA predictions
 cross.validate.odors.lda <- function(mat, num.classes, num.reps=4, num.odors=32) {
   accuracy <- c()
   print(num.classes)
@@ -145,6 +147,7 @@ cross.validate.odors.lda <- function(mat, num.classes, num.reps=4, num.odors=32)
   return(accuracy)
 }
 
+# find cross-validated accuracy for population LDA predictions
 cross.validate.types.lda <- function(mat, num.classes, odor.types, num.reps=4, num.odors=32) {
   accuracy <- c()
   print(num.classes)
@@ -327,6 +330,7 @@ predict.type.all <- function(train.data, test.data, num.reps, num.classes, odor.
 }
 
 
+# use maximum mutual information exemplar to predict using Bernoulli probs
 predict.type.exemplar <- function(train.data, test.data, num.reps, num.classes, odor.types) {
   curr.data <- bin2data.frame(train.data)
   train <- make.trial.probs(curr.data, num.reps=num.reps-1)  
@@ -362,9 +366,6 @@ cross.validate.leaveout <- function(mat) {
 
 # TODO Compute cross-validated accuracy with shuffled labels for comparison
 
-# -- collapse to clusters and redo prediction
-
-# -- Compare with single neuron predictions
 # returns 
 single.neuron.pred <- function(mat) {
     accuracy <- c()

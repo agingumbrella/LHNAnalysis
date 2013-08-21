@@ -1,3 +1,6 @@
+# stuff to deal with 2P data
+# NOT RELEVANT FOR SHAHAR'S DATA (ALSO KIND OF A MESS)
+
 setwd("~/Documents/Neuroscience/jefferis_lab/LHNAnalysis")
 source("Avg_IgorImport.R")
 source("PSTH_FUNC.R")
@@ -211,7 +214,7 @@ goododours=allodours[1:36]
 # 
 allfreqs_goododours=lapply(allfreqs_allodours,function(x) x[,goododours])
 allfreqs_goododours_mat=sapply(allfreqs_allodours,function(x) x[,goododours])
-physplit=read.table("~/Documents/Neuroscience/jefferis_lab/LHNAnalysis/PhySplitSimple.mer",sep=',',header=TRUE,stringsAsFactors=FALSE)
+physplit=read.table("~/Documents/Neuroscience/jefferis_lab/LHNAnalysis/data/PhySplitSimple.mer",sep=',',header=TRUE,stringsAsFactors=FALSE)
 
 # find crosses for all those cells that we have plotted
 jet.colors<-colorRampPalette(c('navy','cyan','yellow','red'))

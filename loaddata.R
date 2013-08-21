@@ -8,6 +8,7 @@ bin.rev.colors <- colorRampPalette(c('black', 'white'))(100)
 ################################################################################
 ## Load LHN data either from spike summary or repeated spike train 
 
+# uncomment this to reload from spike summary produced by SpikeClustering.R
 #load("~/Documents/Neuroscience/jefferis_lab/shahar_data/RandIgor/spike_summary_133.rda")
 ## LOAD LHN SPIKE DATA
 #badcells=c("nm20130329c0","nm20130206c1", "nm20130606c0")
@@ -18,16 +19,15 @@ bin.rev.colors <- colorRampPalette(c('black', 'white'))(100)
 #    SpikesT[[x]] <- as.repeatedTrain(Spikes[[x]][[1]])
 #  }
 #}
-#save(SpikesT, file="spikeT_summer.rda")
+#save(SpikesT, file="data/spikeT_summer.rda")
 
 # load spike summaries
-load("spikeT_summer.rda")
+load("data/spikeT_summer.rda")
 
-  
 ################################################################################
 ## load cell info from database
 
-physplit=read.table("PhySplitSimple.mer",sep=',',header=TRUE,stringsAsFactors=FALSE)
+physplit <- read.table("data/PhySplitSimple.mer",sep=',',header=TRUE,stringsAsFactors=FALSE)
 
 # find cross ids for each cell
 cross.idx <- sapply(names(SpikesT), function(x) grep(x, physplit$Igor.file))
@@ -44,7 +44,6 @@ cross.ids[cross.ids %in% "JKSF274−JK671"] <- "SF274−JK671"
 type.colors <- c(amine="gold", lactone="darkblue", acid="pink", sulfur="black", terpene="lightgreen", aldehyde="gray", ketone="yellow", aromatic="lightblue", alcohol="red", ester="darkgreen")
 
 # color for each cross id
-#cross.colors <- colorRampPalette(c("cyan", "magenta", "yellow", "black"))(length(unique(cross.ids)))
 cross.colors <- colorRampPalette(c('purple','blue','cyan','green','yellow','red'))(length(unique(cross.ids)))
 names(cross.colors) <- unique(cross.ids)
 
@@ -126,7 +125,7 @@ orn.names <- c("Or2a", "Or7a", "Or9a", "Or10a", "Or19a", "Or22a", "Or23a", "Or33
 spontaneous.rates <- c(8, 17, 3, 14, 29, 4, 9, 25, 17, 21, 2, 1, 47, 8, 2, 18, 11, 6, 16, 14, 13, 7, 26, 12) # ordered by OR; from table in supplement of paper
 
 # read valences, odors and types
-val.and.odors <- read.csv("val_orn.csv", header=T)
+val.and.odors <- read.csv("data/val_orn.csv", header=T)
 rownames(val.and.odors) <- val.and.odors$Odorant
 
 # Save valences
@@ -160,25 +159,23 @@ lhn.common <- lhn[rownames(lhn) %in% unlist(names(common.odors)),]
 ## Load anatomical data
 
 # get list of traced neurons
-traced <- dir("~/Documents/Neuroscience/jefferis_lab/LHNAnalysis/Tracing.IS2/", full.name=T)
+# adjust this accordingly for your tracing
+traced <- dir("data/Tracing.IS2", full.name=T)
 neurons <- as.neuronlist(lapply(traced, function(x) read.neuron(x)))
 #neuron.dists <- matrix(0, nrow=length(neurons), ncol=length(neurons))
 
 # TODO Include code for distance measurements
 
 # load precomputed distance matrix m
-load("~/Documents/Neuroscience/jefferis_lab/LHNAnalysis/dists15.Rdata")
+load("data/dists15.Rdata")
 lhn.anatomy.dists <- m
 
 # corresponding cells to the anatomical structures3
 # had to do by hand b/c use different naming formats -- traced file name includes both date and cross id
 # and because the names of the files included date strings and didn't exactly match the cross IDs in the ephys data...
-traced.info <- read.table("tracedinfo.txt", header=T)
+traced.info <- read.table("data/tracedinfo.txt", header=T)
 
 rownames(lhn.anatomy.dists) <- colnames(lhn.anatomy.dists) <- traced.info$Cross
 
 num.anatomy.cross.ids <- length(unique(rownames(lhn.anatomy.dists)))
 
-################################################################################
-## Compute average values for comparison with 2P imaging
-                              

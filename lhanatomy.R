@@ -12,18 +12,23 @@ ComputeLHNPairwiseDists <- function(neurons, use.just.lh=F, lhpoints=NA) {
   dists <- matrix(0, nrow=length(neurons), ncol=length(neurons))
   rownames(dists) <- colnames(dists) <- names(neurons)                              
   for (i in 1:length(neurons)) {
+  	print(i)
     if (use.just.lh) {
-      n1 <- GetLHPoints(neurons[[i]], lhpoints)
+      n1 <- GetLHPoints(neurons[[names(neurons)[i]]], lhpoints)
     } else {
-      n1 <- neurons[[i]]
+      n1 <- neurons[[names(neurons)[i]]]
     }
-    for (j in 1:length(neurons)) {
+    for (j in 1:i) {
       if (use.just.lh) {
-        n2 <- GetLHPoints(neurons[[j]], lhpoints)
+        n2 <- GetLHPoints(neurons[[names(neurons)[j]]], lhpoints)
       } else {
         n2 <- neurons[[j]]
       }
-      dists[i,j] <- WeightedNNBasedLinesetMatching.dotprops(n1, n2)
+      if (length(n1$points) == 0 | length(n2$points) == 0) {
+      	dists[i,j] <- 1
+      } else {
+	    dists[i,j] <- WeightedNNBasedLinesetMatching.dotprops(n1, n2)
+	  }
     }
   }
   return(dists)
@@ -38,9 +43,31 @@ NormalizeMat <- function(m) {
 	return(m.normsmat)  
 }
 
+PlotCluster <- function(neuronnames, lhpoints, show.brain=F, color.lh=F) {
+	clear3d()
+	if (show.brain) {
+		fcwbsurf(alpha=0.1)
+	}
+	neuron.cols <- colorRampPalette(c("gray", "black"))(length(neuronnames))
+	lh.cols <- colorRampPalette(c("white", "red"))(length(neuronnames))
+
+	if (color.lh) {
+		for (i in 1:length(neuronnames)) {
+			curr.lhpoints <- GetLHPoints(dps[[neuronnames[i]]], lhpoints)
+			plot3d(curr.lhpoints, col=lh.cols[i])
+		}
+	}
+
+	for (i in 1:length(neuronnames)) {
+		plot3dfc(neuronnames[i], col=neuron.cols[i], soma=T)
+	}
+	#par3d(zoom=0.5)
+}
+
 ###################################################################
 ## Script to cluster LHNs
 
+source("~/projects/AnalysisSuite/R/Code/Startup.R")
 # include FlyCircuit scripts
 source("~/projects/ChiangReanalysis/src/FlyCircuitStartup.R")
 
@@ -63,7 +90,7 @@ upn.gns <- fc_gene_name(subset(annotation,annotation_class=='NeuronSubType' & gr
 all.pns=c(pn.gns,upn.gns)
 
 # load labels and identify left and right LH regions
-fcwbjfrclabels <- Read3DDensityFromNrrd("data/FCWB_JFRC_labelswarp-04-4xd.nrrd",ReadByteAsRaw='none')
+fcwbjfrclabels <- Read3DDensityFromNrrd("FCWB_JFRC_labelswarp-04-4xd.nrrd",ReadByteAsRaw='none')
 # get points from right-hand side
 rlhpoints <- ind2coord(fcwbjfrclabels==26, voxdims=voxdim.gjdens(fcwbjfrclabels))
 # get points from left-hand side
@@ -88,7 +115,10 @@ rlh <- subset(rlh, !(rownames(rlh) %in% all.pns))
 load_fcdata('apres15kv2ns.p02')
 apdf <- as.data.frame(apres15kv2ns.p02)
 exemplars.llh <- unique(subset(apdf, item %in% rownames(llh))$exemplar)
-exemplar.rlh <- unique(subset(apdf, item %in% rownames(rlh))$exemplar)
+exemplars.rlh <- unique(subset(apdf, item %in% rownames(rlh))$exemplar)
+
+# read distance matrix 
+abc2 <- attach.big.matrix(file.path(fcconfig$bigmatrixdir,"abc2.normdmat.desc"))
 
 # get dotprops for each
 llh.dps <-dps[intersect(names(dps),rownames(llh))]
@@ -99,21 +129,70 @@ rlh.dps <-dps[intersect(names(dps),rownames(rlh))]
 #ldists.all <- plugindist.list(llh.dps, WeightedNNBasedLinesetMatching.dotprops,upper=TRUE,processfun=NULL,sd=3)
 #save(rdists.all, ldists.all, file="data/lhdists.rda")
 
-load("data/lhdists.rda")
-x = as.matrix(llh.dps)
-rdists.lh <- ComputeLHNPairwiseDists(rlh.dps, use.just.lh=T, lhpoints=rlhpoints)
-ldists.lh <- ComputeLHNPairwiseDists(llh.dps, use.just.lh=T, lhpoints=llhpoints)
+#load("data/lhdists.rda")
+#x = as.matrix(llh.dps)
+rdists.lh <- ComputeLHNPairwiseDists(rlh.dps, use.just.lh=T, lhpoints=llhpoints)
+#save(rdists.lh, file="~/Desktop/Will/rdists.rda")
+#ldists.lh <- ComputeLHNPairwiseDists(llh.dps, use.just.lh=T, lhpoints=llhpoints)
 
 # open 3d viewer
 open3d("white")
 
 
 # basic clustering
-hc.lhn.r <- hclust(as.dist(rdists.all), meth='ward')
-#plot(hc.lhn.r)
-groups<-cutree(hc.lhn.r,k=20)
 
 
 # cluster all dists and LH dists using apclusterr
 require(apcluster)
-rdists.cluster <- apcluster(-rdists.all, details=TRUE)
+
+# get just distances for putative LHNs
+llh.good <- names(llh.dps)[names(llh.dps) %in% rownames(allbyallblast.canon)]
+rlh.good <- names(rlh.dps)[names(rlh.dps) %in% rownames(allbyallblast.canon)]
+llh.dists <- abc2[llh.good, llh.good]
+rlh.dists <- abc2[rlh.good, rlh.good]
+
+# save clusterings by whole cell
+num.clusts <- 49
+hc.lhn.r <- hclust(as.dist(rlh.dists), meth='ward')
+hc.lhn.l <- hclust(as.dist(llh.dists), meth='ward')
+llh.groups <- cutree(hc.lhn.l, k=num.clusts)
+rlh.groups <- cutree(hc.lhn.r, k=num.clusts)
+#plot(hc.lhn.r)
+
+# change this to where ever you want your images saved
+#setwd("~/Desktop/Will/lhclusts/")
+frontalView(0.4)
+for (i in 1:num.clusts) {
+	PlotCluster(rownames(llh.dists)[llh.groups == i], llhpoints, color.lh=T, show.brain=T)
+	snapshot3d(paste("llh_cluster_",i,".png",sep=""))
+}
+
+# do clustering by just area in LH
+
+# change to save images somewhwere
+#setwd("~/Desktop/Will/lhclusts_lhonly/")
+hc.rdists <- hclust(as.dist(1-rdists.lh), meth='ward')
+rdists.groups <- cutree(hc.lhn.r, k=num.clusts)
+frontalView(0.4)
+for (i in 1:num.clusts) {
+	PlotCluster(rownames(rdists.lh)[rdists.groups == i], llhpoints, color.lh=T, show.brain=T)
+	snapshot3d(paste("llh_cluster_",i,".png",sep=""))
+}
+
+# redo everything with apcluster
+#setwd("~/Desktop/Will/lhclusts_apclust/")
+clusts <- apcluster(-rlh.dists, q=0.1)
+frontalView(0.5)
+for (i in 1:length(clusts)) {
+	PlotCluster(clusts[[i]], llhpoints, color.lh=T, show.brain=T)
+	snapshot3d(paste("llh_cluster_",i,".png",sep=""))
+}
+
+#setwd("~/Desktop/Will/lhclusts_lhonly_apclust/")
+clusts <- apcluster(as.matrix(1-rdists.lh), p=1, q=0.1,details=T)
+frontalView(0.5)
+for (i in 1:length(clusts)) {
+	PlotCluster(clusts[[i]], llhpoints, color.lh=T, show.brain=T)
+	snapshot3d(paste("llh_cluster_",i,".png",sep=""))
+}
+

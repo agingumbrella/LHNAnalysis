@@ -2,7 +2,7 @@
 
 ShaharDataRoot="/Users/shahar/Data"
 
-physplit=read.table("/Volumes/Shahar_External/Database/PhySplitSimple.mer",sep=',',header=TRUE,stringsAsFactors=FALSE)
+physplit=read.table("/Volumes/Shahar_External/Database/data/PhySplitSimple.mer",sep=',',header=TRUE,stringsAsFactors=FALSE)
 # calculate name of cell from Igor file column
 physplit$cell=basename(physplit$Igor.file)
 #load("~/projects/Shahar/RandIgor/physplit.rda")

@@ -22,6 +22,7 @@ filter.cross.ids <- function(cross.ids) {
 rep.row <- function(x,n){
   return(matrix(rep(x,each=n),nrow=n))
 }
+
 rep.col <- function(x,n){
   return(matrix(rep(x,each=n), ncol=n, byrow=TRUE))
 }

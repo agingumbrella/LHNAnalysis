@@ -6,7 +6,6 @@
 ################################################################################
 ## Stuff for Gaussian moeling
 # make gaussian model assuming independence between cells
-
 indep.gauss.model.all <- function(rates, lambda=0.9, alpha=1) {
   x <- lapply(unique(colnames(rates)), function(odor) {
     temp <- rates[,colnames(rates) %in% odor]
@@ -18,6 +17,7 @@ indep.gauss.model.all <- function(rates, lambda=0.9, alpha=1) {
   return(x)
 }
 
+# model for odorant type prediction
 indep.gauss.model.type <- function(rates, types, lambda=0.9, alpha=1) {
   x <- lapply(unique(types$Type), function(t) {
     temp <- rates[,colnames(rates) %in% subset(types, Type == t)$Odorant]
@@ -35,14 +35,6 @@ dep.gauss.model.all <- function(rates,  lambda=0.9, alpha=1) {
     temp <- rates[,colnames(rates) %in% odor]
     T <- sum(colnames(rates) %in% odor)
     mu <- apply(temp, 1, mean)
-#    sigma <- matrix(0, nrow=nrow(rates), ncol=nrow(rates))
-#    for (i in 1:T) {
-#      sigma <- sigma + (temp[,i] - mu) %*% t(temp[,i] - mu)
-#    }
-#    sigma <- 1/T * sigma
-#    curr.diag <- diag(sigma)
-#    sigma <- (1-lambda)*sigma
-#    diag(sigma) <- curr.diag
     sigma <- cov(t(temp), t(temp)) * lambda + (1-lambda)*alpha*diag(nrow(rates))
     return(list(mu=mu, sigma=sigma))
   })  
@@ -140,26 +132,14 @@ bin2data.frame <- function(m) {
 # class.labels allows you to compute probabilities by odor class rather than by odor
 # the class probability is then used as the response probability for all odors in that class
 make.trial.probs <- function(bin, num.reps=4, alpha=0.1, odor.class.labels=NA, cell.class.labels=NA) {  
-  # check if bin.mat is 1-dimensionsional
-#  if (is.null(dim(bin.mat))) {
- #   probs <- rep(0, length(bin.mat)/num.reps)
-  #  names(probs) <- unique(names(bin.mat))
-   # for (i in unique(names(bin.mat))) {
-    #  curr.cols <- names(bin.mat) %in% i
-     # probs[i] <- (sum(bin.mat[curr.cols])+alpha)/(num.reps+2*alpha)
-    #}
-#  } else {
-
     if (is.na(odor.class.labels)) {
       odor.class.labels <- unique(bin$odor)
-    }
-  
+    }  
     # use just the cells (no cell classes)
     if (is.na(cell.class.labels)) {
       cell.class.labels <- unique(bin$id)
     }
     num.per.cell <- length(unique(bin$odor))*num.reps
-
     cells <- rep(cell.class.labels, each=num.per.cell)
     odors <- rep(rep(odor.class.labels, each=num.reps), length(unique(bin$id)))
     probs <- table(cells, odors, bin$response)

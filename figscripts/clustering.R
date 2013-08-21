@@ -82,7 +82,7 @@ lhn.den <- dendrapply(as.dendrogram(lhn.clust), color.leaves.lhn)
 num.clusts <- 10
 orn.clust.labels <- cutree(orn.clust, num.clusts)
 pn.clust.labels <- cutree(pn.clust, num.clusts)
-lhn.clust.labels <- cutree(lhn.clust, 8)
+lhn.clust.labels <- cutree(lhn.clust, num.clusts)
 
 orn.types.num <- as.numeric(factor(all.odor.type[names(orn.clust.labels),]$Type))
 pn.types.num <- as.numeric(factor(all.odor.type[names(pn.clust.labels),]$Type))
@@ -93,6 +93,7 @@ lhn.types.num <-  as.numeric(factor(lhn.odors.types[names(lhn.clust.labels),]$Ty
 #pn.ri <-  adjustedRandIndex(pn.clust.labels, pn.types.num)
 #lhn.ri <-  adjustedRandIndex(lhn.clust.labels, lhn.types.num)
 
+# compute purity scores for each population
 orn.purity <- per.class.purity(orn.clust.labels,orn.types.num)*100
 names(orn.purity) <- unique(all.odor.type$Type)
 pn.purity <- per.class.purity(pn.clust.labels, pn.types.num)*100
@@ -138,7 +139,7 @@ plot(lhn.cell.den, horiz=T, main="LHN", center=T, xlab='Distance')
 legend("topleft", legend=names(cross.colors), fill=unlist(cross.colors), border=unlist(cross.colors), bty='n', cex=0.5)
 dev.off()
 
-library(mclust)
+# apply a function to subsets of rows and columns simultaneously
 apply.collapsed <- function(rates, clusters, odors, func) {
   out <- matrix(0, nrow=length(unique(clusters)), ncol=length(unique(odors)))
   rownames(out) <- unique(clusters)
@@ -153,20 +154,23 @@ apply.collapsed <- function(rates, clusters, odors, func) {
 }
 
 
-
+# separate out clusters using Mclust
+library(mclust)
 
 #km <- kmeans(t(lhn.delta.rates), length(unique(colnames(lhn.delta.rates))))
 km <- Mclust(t(lhn.delta.rates), G=10)
 x = apply.collapsed(t(lhn.delta.rates), km$classification, factor(lhn.odors.types$Type[lhn.odors.types$Type != "none"]), function(x) mean(x))
+
+# plot per-celltype responses after clustering
 pdf("figs/celltyperesponse.pdf")
 heatmap.2(x, scale='row', col=jet.colors, trace='n', Colv=NA, Rowv=NA, main='Mean Per Cluster, Per Odor Type Responses', sepwidth=c(0,0), density.info='none', dendrogram='none', lmat=rbind( c(0, 3), c(2,1), c(0,4) ), lwid=c(0.5, 3.), lhei=c(1, 4, 1), xlab='Odorant Type', ylab='Cluster ID')
 dev.off()
 
-plot(km.pc$x[,1:2])
 # compute per cross purity score
 lhn.cell.purity <- per.class.purity(km$classification, colnames(lhn.delta.rates))
 names(lhn.cell.purity) <- unique(colnames(lhn.delta.rates))
 
+# plot per-line purity
 pdf("figs/lhn_cell_purity.pdf", width=4, height=4, pointsize=10)
 par(oma=c(0,0,0,0), mar=c(8,4,3,3))
 barplot(lhn.cell.purity*100, col=cross.colors, las=3, ylab="Purity (%)", main='LHN Line Type Purity Scores')
